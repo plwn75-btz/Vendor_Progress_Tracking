@@ -1,0 +1,903 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="dark">
+<head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate" />
+    <meta http-equiv="Pragma" content="no-cache" />
+    <meta http-equiv="Expires" content="0" />
+    <title>Vendor Package Monitoring Dashboard — ASK &amp; Z1F</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet" />
+    <link rel="stylesheet" href="styles.css?v=20261107_1" />
+</head>
+<body>
+    <!-- ====================================================================
+         TOP NAVIGATION BAR: PROJECT SWITCHER, MODE TOGGLE & DAYLIGHT MODE
+         ==================================================================== -->
+    <header class="top-navbar">
+        <div class="brand-cluster">
+            <div class="brand-badge" id="brandBadge">ASK</div>
+            <div class="brand-titles">
+                <h1 id="projectTitle">Weekly Project Management &amp; Vendor Package Monitoring Dashboard</h1>
+                <div class="brand-subtitle">
+                    <span id="projectSubtitle">EPCI of Wellhead Platforms for Aung Sinkha Development Project Phase 1A (EPC-01)</span>
+                    <span>•</span>
+                    <span id="lastGeneratedText">Loading snapshot...</span>
+                </div>
+            </div>
+        </div>
+
+        <div class="controls-cluster">
+            <!-- Element 1: Separated & Switchable Project Selector (ASK | Z1F) -->
+            <div class="segmented-control" title="Switch Project Workspace (Separated ASK & Z1F)">
+                <button type="button" class="seg-btn active" id="btnProjASK" onclick="switchProject('ASK')">
+                    <span>Project: ASK</span>
+                </button>
+                <button type="button" class="seg-btn" id="btnProjZ1F" onclick="switchProject('Z1F')">
+                    <span>Project: Z1F</span>
+                </button>
+            </div>
+
+            <!-- WPR Priority Mode Selector (Dev Sample Template vs Live Execution) -->
+            <div class="segmented-control" title="Toggle between Live Execution Mode (WPR Priority #1 > PSR Priority #2) and Development Sample Mode (PLC WPR Template)">
+                <button type="button" class="seg-btn mode-btn" id="btnModeSample" onclick="switchMode('sample')">
+                    <span>Dev Mode (PLC WPR Sample)</span>
+                </button>
+                <button type="button" class="seg-btn mode-btn active" id="btnModeLive" onclick="switchMode('live')">
+                    <span>Execution Mode (Live WPR &gt; PSR)</span>
+                </button>
+            </div>
+
+            <!-- Comment #7: Daylight Mode / Dark Mode Toggle Button -->
+            <button type="button" class="btn-action btn-theme-toggle" id="btnThemeToggle" onclick="toggleTheme()" title="Switch between Daylight (Light) Mode and Dark Mode">
+                ☀️ Daylight Mode
+            </button>
+
+            <button type="button" class="btn-action" onclick="refreshDashboard(true)" title="Re-scan all 5 dynamic document folders">
+                ↻ Refresh Data
+            </button>
+            <button type="button" class="btn-action btn-primary" onclick="openUploadModal()">
+                + Drop / Upload Weekly Files
+            </button>
+        </div>
+    </header>
+
+    <!-- ====================================================================
+         MAIN DASHBOARD SHELL
+         ==================================================================== -->
+    <main class="dashboard-shell">
+        <!-- 5 Dynamic Document Sources Ribbon -->
+        <section class="sources-ribbon">
+            <div class="source-pills" id="sourcesRibbonPills">
+                <span class="source-pill"><strong>1. WPR/</strong> (.pdf/.docx) Priority #1</span>
+                <span class="source-pill"><strong>2. PSR Plan</strong> (.xlsx) Priority #2 + Fixed ROS</span>
+                <span class="source-pill"><strong>3. VDRL/</strong> (.xlsx) Vendor Submission</span>
+                <span class="source-pill"><strong>4. Vendor Document Log Report</strong> (.xls) Contractual Client Review</span>
+                <span class="source-pill"><strong>5. KOM/</strong> (.pdf/.pptx) Manufacturer Detail</span>
+            </div>
+            <div class="priority-rule-banner">
+                <strong>Rules:</strong> Vendor Delivery Tracked vs. <strong>Master Schedule (SCD) &amp; Procurement Plan ROS Date</strong> • Governing ETA follows <strong>WPR Gantt Chart (if available)</strong> &gt; WPR Milestones &gt; PSR • Progress: Live WPR &amp; MOM (#1) &gt; SCD + VDRL + PSR (#2)
+            </div>
+        </section>
+
+        <!-- Incorporated Uploaded Files Status & Confirmation Banner -->
+        <section class="incorporated-files-banner" id="incorporatedFilesBanner">
+            <!-- Populated dynamically by renderIncorporatedFilesBanner() in app.js -->
+        </section>
+
+        <!-- Single-Row 6-Card Executive KPI Strip (Lesson_Learn.md §2.2) -->
+        <section class="kpi-strip" id="executiveKpiStrip">
+            <!-- Populated dynamically by app.js -->
+        </section>
+
+        <!-- Workspace View Tabs -->
+        <div class="view-tabs-bar">
+            <div class="view-tabs">
+                <button type="button" class="view-tab-btn active" id="tabBtnPackage" onclick="switchTab('package')">
+                    <span>📋 9-Point Package Monitoring Workspace</span>
+                </button>
+                <button type="button" class="view-tab-btn" id="tabBtnPortfolio" onclick="switchTab('portfolio')">
+                    <span>📊 Executive Portfolio Matrix (All Packages)</span>
+                </button>
+                <button type="button" class="view-tab-btn" id="tabBtnDocControl" onclick="switchTab('doccontrol')">
+                    <span>📑 Contractual Client Review &amp; VDRL Hub</span>
+                </button>
+                <button type="button" class="view-tab-btn" id="tabBtnLookAhead" onclick="switchTab('lookahead')">
+                    <span>🔮 7 &amp; 14 Days Look-Ahead Hub</span>
+                </button>
+            </div>
+
+            <div class="filter-bar" id="quickPackageFilterBar">
+                <label for="quickPackageSelect" style="font-size:12px;color:var(--text-muted);font-weight:600;">Active Package:</label>
+                <select id="quickPackageSelect" class="select-control" onchange="selectPackage(this.value)"></select>
+            </div>
+        </div>
+
+        <!-- ================================================================
+             TAB 1: 9-POINT PACKAGE MONITORING WORKSPACE (Elements 1–9)
+             ================================================================ -->
+        <section class="tab-panel active" id="panelPackage">
+            <!-- Point 3: Short Executive Summary of Key Findings, Vendor Management & Document Control at Top of Tab 1 -->
+            <div class="card exec-summary-card" id="tab1ExecutiveSummaryCard">
+                <!-- Populated dynamically by renderTab1ExecutiveSummary() in app.js -->
+            </div>
+
+            <!-- Point 4: All PSR Equipment & Package Dropdown Selector Toolbar (No Horizontal Sliding Bar) -->
+            <div class="card pkg-dropdown-toolbar" id="packageDropdownToolbar">
+                <div class="pkg-toolbar-row">
+                    <div class="pkg-toolbar-title">
+                        <span class="element-num-badge">PSR + VDRL Catalog</span>
+                        <div>
+                            <div class="card-title" style="font-size:13.5px;">Select Equipment / Package (All PSR Equipment Included — Ready for Future VDRL)</div>
+                            <div class="card-subtitle" id="pkgDropdownCountLabel">Includes all PSR equipment (Barred Tee, Corrosion Coupon, Sight Glass, Valves, Vessels, etc.)</div>
+                        </div>
+                    </div>
+
+                    <div class="pkg-toolbar-controls">
+                        <select id="tab1CoverageFilter" class="select-control" onchange="renderPackageSelectorControls(true)" title="Filter by VDRL/PSR Coverage">
+                            <option value="ALL">All PSR &amp; VDRL Equipment</option>
+                            <option value="CORE">Core Packages (With VDRL / KOM / D2)</option>
+                            <option value="PSR_ONLY">PSR Equipment (Awaiting VDRL: Barred Tee, Coupon, Sight Glass...)</option>
+                            <option value="ROS_DELAY">🚨 Delayed After ROS Date Only</option>
+                        </select>
+
+                        <select id="tab1DiscFilter" class="select-control" onchange="renderPackageSelectorControls(true)" title="Filter by Discipline">
+                            <option value="ALL">All Disciplines</option>
+                            <option value="INS">INS (Instrumentation)</option>
+                            <option value="MEC">MEC (Mechanical)</option>
+                            <option value="PV">PV (Pressure Vessels)</option>
+                            <option value="PIP">PIP (Piping &amp; Valves / Sight Glass / Coupon)</option>
+                            <option value="PLR">PLR (Pipeline / Barred Tee / Piggable Wye)</option>
+                            <option value="ELE">ELE (Electrical)</option>
+                            <option value="STR">STR (Structural Steel / Plate / Beam)</option>
+                            <option value="TEL">TEL (Telecom)</option>
+                            <option value="SAF">SAF (Safety / Lifesaving)</option>
+                        </select>
+
+                        <input type="text" id="tab1PkgSearchInput" class="input-control" placeholder="Search Barred Tee, Coupon, Sight Glass, PLC..." oninput="renderPackageSelectorControls(true)" style="min-width:210px;" />
+
+                        <div style="display:inline-flex;align-items:center;gap:6px;flex-wrap:wrap;">
+                            <button type="button" class="btn-action" onclick="stepPackageSelection(-1)" title="Previous Equipment / Package" style="padding:6px 10px;">◀ Prev</button>
+                            <select id="tab1EquipmentDropdown" class="select-control pkg-main-select" onchange="selectPackage(this.value)"></select>
+                            <button type="button" class="btn-action" onclick="stepPackageSelection(1)" title="Next Equipment / Package" style="padding:6px 10px;">Next ▶</button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Comment #4.1 & #6: Package Key Highlight Information Banner -->
+            <div class="highlight-banner-grid" id="packageHighlightBanner">
+                <!-- Populated dynamically per package by app.js -->
+            </div>
+
+            <!-- Row 1: Elements 1 & 2 (Project + Package Identification) + Element 3 (Manufacturer Detail from KOM/) -->
+            <div class="grid-2col">
+                <div class="card">
+                    <div class="card-header">
+                        <div class="card-title-group">
+                            <span class="element-num-badge">Elements 1 &amp; 2</span>
+                            <div>
+                                <div class="card-title" id="pkgHeaderTitle">Project &amp; Package Identification</div>
+                                <div class="card-subtitle" id="pkgHeaderSub">Package metadata, report cut-off, immutable PSR ROS Date &amp; data priority status</div>
+                                <div id="elRefStamp12"></div>
+                            </div>
+                        </div>
+                        <div id="pkgHeaderBadges" style="display:flex;gap:8px;flex-wrap:wrap;"></div>
+                    </div>
+                    <div class="kv-grid" id="pkgIdentityGrid"></div>
+                </div>
+
+                <div class="card">
+                    <div class="card-header">
+                        <div class="card-title-group">
+                            <span class="element-num-badge">Element 3</span>
+                            <div>
+                                <div class="card-title">Manufacturer Detail (KOM Source)</div>
+                                <div class="card-subtitle">Populated strictly from KOM/ folder; left blank (—) if KOM is not available</div>
+                                <div id="elRefStamp3"></div>
+                            </div>
+                        </div>
+                        <div id="komStatusBadge"></div>
+                    </div>
+                    <div class="kv-grid" id="manufacturerGrid"></div>
+                </div>
+            </div>
+
+            <!-- Row 2: Element 7 (Overall Progress S-Curve: Package vs Weighted All Packages) + Elements 8 & 9 -->
+            <div class="grid-2col">
+                <div class="card">
+                    <div class="card-header">
+                        <div class="card-title-group">
+                            <span class="element-num-badge">Element 7</span>
+                            <div>
+                                <div class="card-title" id="scurveCardTitle">Overall Progress (S-Curve)</div>
+                                <div class="card-subtitle" id="scurveSubtitle">Dynamic Package S-Curve &amp; Weighted Project S-Curve Across All Packages</div>
+                                <div id="elRefStamp7"></div>
+                            </div>
+                        </div>
+                        <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;">
+                            <!-- Comment #2 & #3: Switch between Selected Package S-Curve and Weighted All-Packages S-Curve -->
+                            <div class="segmented-control" title="Switch between Selected Package S-Curve and Project Overall Weighted S-Curve across all packages">
+                                <button type="button" class="seg-btn active" id="btnScurvePkg" onclick="switchScurveView('package')">
+                                    <span id="btnScurvePkgLabel">Selected Package S-Curve</span>
+                                </button>
+                                <button type="button" class="seg-btn" id="btnScurveProject" onclick="switchScurveView('project')">
+                                    <span>Weighted All Packages S-Curve</span>
+                                </button>
+                            </div>
+                            <div id="scurveKpiPills" style="display:flex;gap:6px;flex-wrap:wrap;"></div>
+                        </div>
+                    </div>
+
+                    <div class="scurve-box">
+                        <div class="scurve-legend">
+                            <div class="legend-items">
+                                <span><i class="legend-swatch" style="background:#38bdf8;"></i>Planned Cumulative (%)</span>
+                                <span><i class="legend-swatch" style="background:#10b981;"></i>Actual Cumulative (%)</span>
+                                <span><i class="legend-swatch" style="background:#f59e0b;"></i>Reporting Cut-off Week</span>
+                            </div>
+                            <span id="scurveCutOffLabel" style="font-size:12px;color:var(--text-muted);"></span>
+                        </div>
+                        <div id="scurveSvgContainer"></div>
+                    </div>
+
+                    <!-- This Period Key Activities Summary (Dynamic per Package) -->
+                    <div style="margin-top:12px;">
+                        <div class="kv-label" style="margin-bottom:6px;" id="thisPeriodTitleLabel">WPR Section 1 — This Period Activities</div>
+                        <div id="thisPeriodActivitiesList" style="display:flex;flex-wrap:wrap;gap:8px;"></div>
+                    </div>
+
+                    <!-- Comment #2: Project Weighting Progress Calculation Breakdown Across All Packages -->
+                    <div style="margin-top:14px;border-top:1px solid var(--border-subtle);padding-top:12px;">
+                        <div class="table-toolbar">
+                            <div>
+                                <div class="kv-label" style="margin-bottom:2px;">Project Overall S-Curve Weighting Calculation Across All Packages</div>
+                                <div style="font-size:11.5px;color:var(--text-muted);" id="pkgWeightsFormulaNote">Weighted sum of all packages based on package complexity &amp; milestone progress</div>
+                            </div>
+                            <div class="filter-bar">
+                                <input type="text" id="scurveWeightsFilterInput" class="input-control" placeholder="Filter package weight..." oninput="renderScurveWeightsTable()" />
+                                <button type="button" class="btn-action" id="btnToggleWeightsTable" onclick="toggleWeightsBreakdownTable()" style="padding:5px 10px;font-size:11.5px;">
+                                    ▼ Show/Hide Weight Table
+                                </button>
+                            </div>
+                        </div>
+                        <div id="scurveWeightsTableWrapper" class="table-scroll" style="max-height:240px;overflow-y:auto;">
+                            <table class="data-table" id="scurveWeightsTable">
+                                <thead>
+                                    <tr>
+                                        <th class="sortable-th" onclick="toggleSort('scurveWeights', 'package_code')">Pkg <span class="sort-ind" id="sort_scurveWeights_package_code">⇅</span></th>
+                                        <th class="sortable-th" onclick="toggleSort('scurveWeights', 'package_name')">Package Name <span class="sort-ind" id="sort_scurveWeights_package_name">⇅</span></th>
+                                        <th class="center sortable-th" onclick="toggleSort('scurveWeights', 'discipline')">Disc <span class="sort-ind" id="sort_scurveWeights_discipline">⇅</span></th>
+                                        <th class="num sortable-th" onclick="toggleSort('scurveWeights', 'package_weight_pct')">Pkg Weight % <span class="sort-ind" id="sort_scurveWeights_package_weight_pct">⇅</span></th>
+                                        <th class="num sortable-th" onclick="toggleSort('scurveWeights', 'pkg_planned_pct')">Pkg Plan % <span class="sort-ind" id="sort_scurveWeights_pkg_planned_pct">⇅</span></th>
+                                        <th class="num sortable-th" onclick="toggleSort('scurveWeights', 'pkg_actual_pct')">Pkg Actual % <span class="sort-ind" id="sort_scurveWeights_pkg_actual_pct">⇅</span></th>
+                                        <th class="num sortable-th" onclick="toggleSort('scurveWeights', 'weighted_planned_pct')">Weighted Plan % <span class="sort-ind" id="sort_scurveWeights_weighted_planned_pct">⇅</span></th>
+                                        <th class="num sortable-th" onclick="toggleSort('scurveWeights', 'weighted_actual_pct')">Weighted Actual % <span class="sort-ind" id="sort_scurveWeights_weighted_actual_pct">⇅</span></th>
+                                    </tr>
+                                </thead>
+                                <tbody id="scurveWeightsTableBody"></tbody>
+                            </table>
+                        </div>
+                    </div>
+                </div>
+
+                <div style="display:flex;flex-direction:column;gap:18px;">
+                    <!-- Element 8: Look Ahead Plan 7-14 Days (Dynamic per Package) -->
+                    <div class="card">
+                        <div class="card-header">
+                            <div class="card-title-group">
+                                <span class="element-num-badge">Element 8</span>
+                                <div>
+                                    <div class="card-title" id="lookAheadCardTitle">Look Ahead Plan (7–14 Days)</div>
+                                    <div class="card-subtitle">Dynamic package-specific WPR activities, Attachment 3 Gantt tasks &amp; upcoming VDRL submittals</div>
+                                    <div id="elRefStamp8"></div>
+                                </div>
+                            </div>
+                            <div class="filter-bar">
+                                <input type="text" id="lookAheadFilterInput" class="input-control" placeholder="Filter 7-14d look ahead..." oninput="renderLookAheadPlan()" />
+                                <span class="badge badge-info" id="lookAheadCountBadge">0 Items</span>
+                            </div>
+                        </div>
+                        <div class="lookahead-list" id="lookAheadContainer"></div>
+                    </div>
+
+                    <!-- Element 9: Area of Concern (Includes ROS Delay & Attachment 3/4 Bottlenecks) -->
+                    <div class="card">
+                        <div class="card-header">
+                            <div class="card-title-group">
+                                <span class="element-num-badge">Element 9</span>
+                                <div>
+                                    <div class="card-title">Area of Concern &amp; Hold Points</div>
+                                    <div class="card-subtitle">ROS Date delays, WPR/MOM concerns, Attachment 3/4 fabrication &amp; material holds, overdue VDRLs &amp; client reviews</div>
+                                    <div id="elRefStamp9"></div>
+                                </div>
+                            </div>
+                            <div class="filter-bar">
+                                <input type="text" id="concernFilterInput" class="input-control" placeholder="Filter concerns..." oninput="renderAreasOfConcern()" />
+                                <span class="badge badge-danger" id="concernCountBadge">0 Concerns</span>
+                            </div>
+                        </div>
+                        <div class="concern-list" id="areaOfConcernContainer"></div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Comment #5: WPR Attachment 3 (Overall Fabrication Detail Plan Gantt) & Attachment 4 (Supplier Material Status Expediting Report) -->
+            <div class="grid-equal-2col">
+                <!-- Attachment 3: Overall Fabrication Detail Plan (Gantt Chart Analysis & Phase Summary) -->
+                <div class="card">
+                    <div class="card-header">
+                        <div class="card-title-group">
+                            <span class="element-num-badge">WPR Attachment 3</span>
+                            <div>
+                                <div class="card-title">Overall Fabrication Detail Plan — Gantt Situation Analysis</div>
+                                <div class="card-subtitle" id="att3Subtitle">Critical path sequence, phase progress &amp; schedule bottleneck analysis</div>
+                                <div id="elRefStampAtt3"></div>
+                            </div>
+                        </div>
+                        <div class="filter-bar">
+                            <input type="text" id="att3FilterInput" class="input-control" placeholder="Filter phase, task, status..." oninput="renderAttachments3And4()" />
+                            <span class="badge badge-info" id="att3TotalTasksBadge">61 Gantt Tasks</span>
+                        </div>
+                    </div>
+
+                    <!-- Situation Summary Banner -->
+                    <div id="att3SituationBanner" style="margin-bottom:12px;"></div>
+
+                    <div class="table-scroll">
+                        <table class="data-table">
+                            <thead>
+                                <tr>
+                                    <th class="sortable-th" onclick="toggleSort('att3Phases', 'phase_id')">Phase &amp; Critical Activity <span class="sort-ind" id="sort_att3Phases_phase_id">⇅</span></th>
+                                    <th class="center sortable-th" onclick="toggleSort('att3Phases', 'duration_days')">Duration <span class="sort-ind" id="sort_att3Phases_duration_days">⇅</span></th>
+                                    <th class="sortable-th" onclick="toggleSort('att3Phases', 'start_date')">Schedule Window <span class="sort-ind" id="sort_att3Phases_start_date">⇅</span></th>
+                                    <th class="center sortable-th" onclick="toggleSort('att3Phases', 'status')">Status <span class="sort-ind" id="sort_att3Phases_status">⇅</span></th>
+                                    <th class="sortable-th" onclick="toggleSort('att3Phases', 'critical_note')">Gantt Situation &amp; Impact <span class="sort-ind" id="sort_att3Phases_critical_note">⇅</span></th>
+                                </tr>
+                            </thead>
+                            <tbody id="att3PhasesTableBody"></tbody>
+                        </table>
+                    </div>
+                </div>
+
+                <!-- Attachment 4: Expediting Report for Supplier's Material Status -->
+                <div class="card">
+                    <div class="card-header">
+                        <div class="card-title-group">
+                            <span class="element-num-badge">WPR Attachment 4</span>
+                            <div>
+                                <div class="card-title">Supplier Material Status (Sub-Order Expediting Report)</div>
+                                <div class="card-subtitle" id="att4Subtitle">Sub-vendor procurement holds, prerequisite drawing/BOM gates &amp; fabrication impact</div>
+                                <div id="elRefStampAtt4"></div>
+                            </div>
+                        </div>
+                        <div class="filter-bar">
+                            <input type="text" id="att4FilterInput" class="input-control" placeholder="Filter component, supplier, gate..." oninput="renderAttachments3And4()" />
+                            <span class="badge badge-warning" id="att4HoldCountBadge">0 Holds</span>
+                        </div>
+                    </div>
+
+                    <!-- Attachment 4 Situation Summary Banner -->
+                    <div id="att4SituationBanner" style="margin-bottom:12px;"></div>
+
+                    <div class="table-scroll">
+                        <table class="data-table">
+                            <thead>
+                                <tr>
+                                    <th class="center sortable-th" onclick="toggleSort('att4Materials', 'item_no')">Item <span class="sort-ind" id="sort_att4Materials_item_no">⇅</span></th>
+                                    <th class="sortable-th" onclick="toggleSort('att4Materials', 'component')">Component &amp; Sub-Supplier <span class="sort-ind" id="sort_att4Materials_component">⇅</span></th>
+                                    <th class="sortable-th" onclick="toggleSort('att4Materials', 'prerequisite_gate')">Prerequisite Gate <span class="sort-ind" id="sort_att4Materials_prerequisite_gate">⇅</span></th>
+                                    <th class="center sortable-th" onclick="toggleSort('att4Materials', 'po_status')">PO Status <span class="sort-ind" id="sort_att4Materials_po_status">⇅</span></th>
+                                    <th class="sortable-th" onclick="toggleSort('att4Materials', 'planned_eta')">Plan Order / ETA <span class="sort-ind" id="sort_att4Materials_planned_eta">⇅</span></th>
+                                    <th class="center sortable-th" onclick="toggleSort('att4Materials', 'risk_level')">Risk Level <span class="sort-ind" id="sort_att4Materials_risk_level">⇅</span></th>
+                                    <th class="sortable-th" onclick="toggleSort('att4Materials', 'impact_on_production')">Production Impact <span class="sort-ind" id="sort_att4Materials_impact_on_production">⇅</span></th>
+                                </tr>
+                            </thead>
+                            <tbody id="att4MaterialsTableBody"></tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Minutes of Meeting (MOM) Overall Situation, Key Concerns & Action Items Card -->
+            <div class="card" id="pkgMomSummaryCard" style="margin-bottom:18px;">
+                <div class="card-header">
+                    <div class="card-title-group">
+                        <span class="element-num-badge">MOM Integration</span>
+                        <div>
+                            <div class="card-title" id="momCardTitle">Minutes of Meeting (MOM) — Overall Situation, Key Concerns &amp; Action Items</div>
+                            <div class="card-subtitle" id="momCardSubtitle">Summarizes overall package situation, highlights key concerns, and tracks MOM action items &amp; sub-vendor procurement</div>
+                            <div id="elRefStampMom"></div>
+                        </div>
+                    </div>
+                    <div class="filter-bar">
+                        <div id="momCountsBadges" style="display:flex;gap:6px;flex-wrap:wrap;"></div>
+                        <select id="momStatusFilter" class="select-control" onchange="renderPackageMomSummary()">
+                            <option value="ALL">All Statuses</option>
+                            <option value="OPEN">OPEN Action Items Only</option>
+                            <option value="CLOSED">CLOSED Items</option>
+                            <option value="INFO">INFO Items</option>
+                        </select>
+                        <input type="text" id="momSearchInput" class="input-control" placeholder="Search MOM item, pump, flow switch, PO..." oninput="renderPackageMomSummary()" />
+                    </div>
+                </div>
+                <div id="momSummaryBody"></div>
+            </div>
+
+            <!-- Row 3: Element 4 (Key Milestone) + Element 5 (Progress Tracking by Key Milestone) -->
+            <div class="grid-equal-2col">
+                <div class="card">
+                    <div class="card-header">
+                        <div class="card-title-group">
+                            <span class="element-num-badge">Element 4</span>
+                            <div>
+                                <div class="card-title">Key Milestones Schedule (12 Standard Milestones)</div>
+                                <div class="card-subtitle">WPR Priority #1 &gt; PSR Priority #2 • Governing ETA follows Gantt Chart (if available)</div>
+                                <div id="elRefStamp4"></div>
+                            </div>
+                        </div>
+                        <div class="filter-bar">
+                            <input type="text" id="milestoneTableFilterInput" class="input-control" placeholder="Filter milestone, status, date..." oninput="renderKeyMilestonesTable()" />
+                            <span class="badge badge-purple" id="milestoneSourceBadge">WPR &gt; PSR</span>
+                        </div>
+                    </div>
+                    <div id="element4DiscrepancyBanner" style="margin-bottom:10px;display:none;"></div>
+                    <div class="table-scroll">
+                        <table class="data-table">
+                            <thead>
+                                <tr>
+                                    <th class="center sortable-th" onclick="toggleSort('keyMilestones', 'no')"># <span class="sort-ind" id="sort_keyMilestones_no">⇅</span></th>
+                                    <th class="sortable-th" onclick="toggleSort('keyMilestones', 'description')">Milestone Description <span class="sort-ind" id="sort_keyMilestones_description">⇅</span></th>
+                                    <th class="sortable-th" onclick="toggleSort('keyMilestones', 'planned_date')">Planned <span class="sort-ind" id="sort_keyMilestones_planned_date">⇅</span></th>
+                                    <th class="sortable-th" onclick="toggleSort('keyMilestones', 'effective_date')">Forecast / Actual <span class="sort-ind" id="sort_keyMilestones_effective_date">⇅</span></th>
+                                    <th class="center sortable-th" onclick="toggleSort('keyMilestones', 'status')">Status <span class="sort-ind" id="sort_keyMilestones_status">⇅</span></th>
+                                    <th class="sortable-th" onclick="toggleSort('keyMilestones', 'source')">Source &amp; Remark <span class="sort-ind" id="sort_keyMilestones_source">⇅</span></th>
+                                </tr>
+                            </thead>
+                            <tbody id="keyMilestonesTableBody"></tbody>
+                        </table>
+                    </div>
+                </div>
+
+                <div class="card">
+                    <div class="card-header">
+                        <div class="card-title-group">
+                            <span class="element-num-badge">Element 5</span>
+                            <div>
+                                <div class="card-title">Progress Tracking by Key Milestone</div>
+                                <div class="card-subtitle">Weight factor (%), milestone completion %, and weighted cumulative progress</div>
+                                <div id="elRefStamp5"></div>
+                            </div>
+                        </div>
+                        <div class="filter-bar">
+                            <input type="text" id="milestoneProgFilterInput" class="input-control" placeholder="Filter component, weight..." oninput="renderMilestoneProgressTable()" />
+                            <span class="badge badge-info" id="milestoneProgressSummaryBadge">Total Weight: 100%</span>
+                        </div>
+                    </div>
+                    <div class="table-scroll">
+                        <table class="data-table">
+                            <thead>
+                                <tr>
+                                    <th class="center sortable-th" onclick="toggleSort('milestoneProgress', 'id')">Item <span class="sort-ind" id="sort_milestoneProgress_id">⇅</span></th>
+                                    <th class="sortable-th" onclick="toggleSort('milestoneProgress', 'description')">Milestone / Component <span class="sort-ind" id="sort_milestoneProgress_description">⇅</span></th>
+                                    <th class="num sortable-th" onclick="toggleSort('milestoneProgress', 'weight_pct')">Weight <span class="sort-ind" id="sort_milestoneProgress_weight_pct">⇅</span></th>
+                                    <th class="num sortable-th" onclick="toggleSort('milestoneProgress', 'planned_pct')">Planned % <span class="sort-ind" id="sort_milestoneProgress_planned_pct">⇅</span></th>
+                                    <th class="num sortable-th" onclick="toggleSort('milestoneProgress', 'actual_pct')">Actual % <span class="sort-ind" id="sort_milestoneProgress_actual_pct">⇅</span></th>
+                                    <th class="num sortable-th" onclick="toggleSort('milestoneProgress', 'weighted_actual_pct')">Weighted Act. <span class="sort-ind" id="sort_milestoneProgress_weighted_actual_pct">⇅</span></th>
+                                    <th>Progress Bar</th>
+                                </tr>
+                            </thead>
+                            <tbody id="milestoneProgressTableBody"></tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Row 4: Element 6 (Status Vendor Document — Dual Monitoring: 6A VDRL Submission + 6B Contractual Client Log) -->
+            <div class="card">
+                <div class="card-header">
+                    <div class="card-title-group">
+                        <span class="element-num-badge">Element 6</span>
+                        <div>
+                            <div class="card-title">Status Vendor Document — Dual Contractual &amp; Submission Monitoring</div>
+                            <div class="card-subtitle">
+                                <strong>6A. VDRL Register:</strong> Monitors Vendor Document Submission •
+                                <strong>6B. Vendor Document Log Report (D2):</strong> Official &amp; Contractual Client Review &amp; Return Status
+                            </div>
+                            <div id="elRefStamp6"></div>
+                        </div>
+                    </div>
+                    <div class="filter-bar">
+                        <input type="text" id="pkgDocSearchInput" class="input-control" placeholder="Search document no., title, status..." oninput="renderPackageDocuments()" />
+                        <select id="pkgDocFilterSelect" class="select-control" onchange="renderPackageDocuments()">
+                            <option value="ALL">All Documents</option>
+                            <option value="OVERDUE">Overdue Only</option>
+                            <option value="KEY">Key Documents (Y)</option>
+                            <option value="PROD_IMPACT">Production Impact (Y)</option>
+                            <option value="SUBMITTED">Submitted</option>
+                        </select>
+                    </div>
+                </div>
+
+                <div class="grid-equal-2col" style="margin-bottom:16px;">
+                    <!-- 6A: VDRL Vendor Document Submission Summary -->
+                    <div class="kv-box" style="padding:14px;">
+                        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px;flex-wrap:wrap;gap:8px;">
+                            <div>
+                                <div class="card-title" style="font-size:13.5px;">6A. Vendor Document Submission (VDRL/)</div>
+                                <div class="card-subtitle" id="vdrlFileSubtitle">Source: VDRL/</div>
+                            </div>
+                            <span class="badge badge-info" id="vdrlPctBadge">0% Submitted</span>
+                        </div>
+                        <div class="kv-grid" id="vdrlSummaryStatsGrid"></div>
+                    </div>
+
+                    <!-- 6B: Contractual Client Review & Return Log Summary -->
+                    <div class="kv-box" style="padding:14px;">
+                        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px;flex-wrap:wrap;gap:8px;">
+                            <div>
+                                <div class="card-title" style="font-size:13.5px;">6B. Official Client Review &amp; Return (Vendor Document Log Report)</div>
+                                <div class="card-subtitle" id="clientLogFileSubtitle">Official D2 Contractual Monitoring Document</div>
+                            </div>
+                            <span class="badge badge-purple" id="clientLogTotalBadge">0 Submittals</span>
+                        </div>
+                        <div class="kv-grid" id="clientLogSummaryStatsGrid"></div>
+                    </div>
+                </div>
+
+                <!-- Dual Document Tables: 6A VDRL Documents & 6B Contractual Client Submittals -->
+                <div class="grid-equal-2col">
+                    <div>
+                        <div class="table-toolbar">
+                            <div class="kv-label">6A. Package VDRL Document Submission Register</div>
+                            <input type="text" id="vdrlSubFilterInput" class="input-control" placeholder="Filter 6A VDRL table..." oninput="renderPackageDocuments()" />
+                        </div>
+                        <div class="table-scroll" style="max-height:380px;overflow-y:auto;">
+                            <table class="data-table">
+                                <thead>
+                                    <tr>
+                                        <th class="sortable-th" onclick="toggleSort('pkgVdrlDocs', 'doc_no')">Document No. <span class="sort-ind" id="sort_pkgVdrlDocs_doc_no">⇅</span></th>
+                                        <th class="sortable-th" onclick="toggleSort('pkgVdrlDocs', 'title')">Document Title <span class="sort-ind" id="sort_pkgVdrlDocs_title">⇅</span></th>
+                                        <th class="center sortable-th" onclick="toggleSort('pkgVdrlDocs', 'is_key')">Key / Prod <span class="sort-ind" id="sort_pkgVdrlDocs_is_key">⇅</span></th>
+                                        <th class="sortable-th" onclick="toggleSort('pkgVdrlDocs', 'plan_date')">Plan Date <span class="sort-ind" id="sort_pkgVdrlDocs_plan_date">⇅</span></th>
+                                        <th class="sortable-th" onclick="toggleSort('pkgVdrlDocs', 'actual_date')">Actual Date <span class="sort-ind" id="sort_pkgVdrlDocs_actual_date">⇅</span></th>
+                                        <th class="center sortable-th" onclick="toggleSort('pkgVdrlDocs', 'status')">Submission Status <span class="sort-ind" id="sort_pkgVdrlDocs_status">⇅</span></th>
+                                    </tr>
+                                </thead>
+                                <tbody id="pkgVdrlDocsTableBody"></tbody>
+                            </table>
+                        </div>
+                    </div>
+
+                    <div>
+                        <div class="table-toolbar">
+                            <div class="kv-label">6B. Package Contractual Client Review &amp; Return Submittals (D2 Log)</div>
+                            <input type="text" id="clientDocSubFilterInput" class="input-control" placeholder="Filter 6B Client Log table..." oninput="renderPackageDocuments()" />
+                        </div>
+                        <div class="table-scroll" style="max-height:380px;overflow-y:auto;">
+                            <table class="data-table">
+                                <thead>
+                                    <tr>
+                                        <th class="sortable-th" onclick="toggleSort('pkgClientDocs', 'submittal_id')">Submittal ID <span class="sort-ind" id="sort_pkgClientDocs_submittal_id">⇅</span></th>
+                                        <th class="sortable-th" onclick="toggleSort('pkgClientDocs', 'doc_no')">Document No. &amp; Title <span class="sort-ind" id="sort_pkgClientDocs_doc_no">⇅</span></th>
+                                        <th class="center sortable-th" onclick="toggleSort('pkgClientDocs', 'status')">Workflow <span class="sort-ind" id="sort_pkgClientDocs_status">⇅</span></th>
+                                        <th class="sortable-th" onclick="toggleSort('pkgClientDocs', 'focal_point_plan_finish')">Reviewer / Plan Finish <span class="sort-ind" id="sort_pkgClientDocs_focal_point_plan_finish">⇅</span></th>
+                                        <th class="center sortable-th" onclick="toggleSort('pkgClientDocs', 'return_code')">Return Code <span class="sort-ind" id="sort_pkgClientDocs_return_code">⇅</span></th>
+                                        <th class="sortable-th" onclick="toggleSort('pkgClientDocs', 'transmittal_out_no')">Transmittal Out <span class="sort-ind" id="sort_pkgClientDocs_transmittal_out_no">⇅</span></th>
+                                    </tr>
+                                </thead>
+                                <tbody id="pkgClientDocsTableBody"></tbody>
+                            </table>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </section>
+
+        <!-- ================================================================
+             TAB 2: EXECUTIVE PORTFOLIO MATRIX (ALL PACKAGES)
+             ================================================================ -->
+        <section class="tab-panel" id="panelPortfolio">
+            <div class="card">
+                <div class="card-header">
+                    <div>
+                        <div class="card-title">Executive Package Portfolio Matrix (All PSR &amp; VDRL Packages — Single-Window Fit)</div>
+                        <div class="card-subtitle">Click any column header to sort Ascending (▲) / Descending (▼), or click any equipment row to inspect its 9-Point Workspace</div>
+                    </div>
+                    <div class="filter-bar">
+                        <input type="text" id="portfolioSearchInput" class="input-control" placeholder="Search Barred Tee, Coupon, Sight Glass, PLC, ROS..." oninput="renderPortfolioTable()" />
+                        <select id="portfolioCoverageFilter" class="select-control" onchange="renderPortfolioTable()">
+                            <option value="ALL">All PSR &amp; VDRL Equipment</option>
+                            <option value="CORE">Core Packages (With VDRL / KOM / D2)</option>
+                            <option value="PSR_ONLY">PSR Equipment (Awaiting VDRL)</option>
+                        </select>
+                        <select id="portfolioDiscFilter" class="select-control" onchange="renderPortfolioTable()">
+                            <option value="ALL">All Disciplines</option>
+                            <option value="INS">Instrumentation (INS)</option>
+                            <option value="MEC">Mechanical (MEC)</option>
+                            <option value="PV">Pressure Vessels (PV)</option>
+                            <option value="PIP">Piping (PIP)</option>
+                            <option value="PLR">Pipeline (PLR)</option>
+                            <option value="ELE">Electrical (ELE)</option>
+                            <option value="STR">Structural (STR)</option>
+                            <option value="TEL">Telecom (TEL)</option>
+                            <option value="SAF">Safety (SAF)</option>
+                        </select>
+                        <select id="portfolioHealthFilter" class="select-control" onchange="renderPortfolioTable()">
+                            <option value="ALL">All Health / ROS Statuses</option>
+                            <option value="ROS_DELAY">🚨 Delayed After ROS Date Only</option>
+                            <option value="danger">Critical / Action Required</option>
+                            <option value="warning">Watch / Minor Delay</option>
+                            <option value="success">On Track</option>
+                        </select>
+                    </div>
+                </div>
+                <div class="table-scroll single-window-table-wrap">
+                    <table class="data-table portfolio-fit-table" id="portfolioMatrixTable">
+                        <colgroup>
+                            <col style="width:6.0%;" />
+                            <col style="width:14.0%;" />
+                            <col style="width:4.5%;" />
+                            <col style="width:12.5%;" />
+                            <col style="width:5.5%;" />
+                            <col style="width:5.0%;" />
+                            <col style="width:5.5%;" />
+                            <col style="width:11.0%;" />
+                            <col style="width:8.5%;" />
+                            <col style="width:11.5%;" />
+                            <col style="width:6.5%;" />
+                            <col style="width:4.0%;" />
+                            <col style="width:5.5%;" />
+                        </colgroup>
+                        <thead>
+                            <tr>
+                                <th class="sortable-th" onclick="toggleSort('portfolio', 'package_code')">Pkg Code <span class="sort-ind" id="sort_portfolio_package_code">⇅</span></th>
+                                <th class="sortable-th" onclick="toggleSort('portfolio', 'package_name')">Equipment / Package Name <span class="sort-ind" id="sort_portfolio_package_name">⇅</span></th>
+                                <th class="center sortable-th" onclick="toggleSort('portfolio', 'discipline')">Disc <span class="sort-ind" id="sort_portfolio_discipline">⇅</span></th>
+                                <th class="sortable-th" onclick="toggleSort('portfolio', 'manufacturer_name')">Manufacturer (KOM/) <span class="sort-ind" id="sort_portfolio_manufacturer_name">⇅</span></th>
+                                <th class="num sortable-th" onclick="toggleSort('portfolio', 'package_weight_pct')">Wt % <span class="sort-ind" id="sort_portfolio_package_weight_pct">⇅</span></th>
+                                <th class="num sortable-th" onclick="toggleSort('portfolio', 'planned_pct')">Plan % <span class="sort-ind" id="sort_portfolio_planned_pct">⇅</span></th>
+                                <th class="num sortable-th" onclick="toggleSort('portfolio', 'actual_pct')">Act % <span class="sort-ind" id="sort_portfolio_actual_pct">⇅</span></th>
+                                <th class="sortable-th" onclick="toggleSort('portfolio', 'next_milestone_days')">Next Key Milestone <span class="sort-ind" id="sort_portfolio_next_milestone_days">⇅</span></th>
+                                <th class="sortable-th" onclick="toggleSort('portfolio', 'days_to_delivery')">Delivery ETA <span class="sort-ind" id="sort_portfolio_days_to_delivery">⇅</span></th>
+                                <th class="sortable-th" onclick="toggleSort('portfolio', 'ros_margin_days')">🔒 Fixed ROS &amp; Delay <span class="sort-ind" id="sort_portfolio_ros_margin_days">⇅</span></th>
+                                <th class="num sortable-th" onclick="toggleSort('portfolio', 'vdrl_pct')">VDRL <span class="sort-ind" id="sort_portfolio_vdrl_pct">⇅</span></th>
+                                <th class="center sortable-th" onclick="toggleSort('portfolio', 'concerns_count')">Iss. <span class="sort-ind" id="sort_portfolio_concerns_count">⇅</span></th>
+                                <th class="center sortable-th" onclick="toggleSort('portfolio', 'health_status')">Health <span class="sort-ind" id="sort_portfolio_health_status">⇅</span></th>
+                            </tr>
+                        </thead>
+                        <tbody id="portfolioTableBody"></tbody>
+                    </table>
+                </div>
+            </div>
+        </section>
+
+        <!-- ================================================================
+             TAB 3: CONTRACTUAL CLIENT REVIEW & VDRL HUB (PROJECT-WIDE)
+             ================================================================ -->
+        <section class="tab-panel" id="panelDocControl">
+            <div class="grid-2col">
+                <div class="card">
+                    <div class="card-header">
+                        <div>
+                            <div class="card-title">Official Vendor Document Log Report — Package Breakdown</div>
+                            <div class="card-subtitle" id="hubClientLogSubtitle">Contractual monitoring of Client review &amp; return documents across all packages</div>
+                        </div>
+                        <div class="filter-bar">
+                            <input type="text" id="hubPkgBreakdownFilter" class="input-control" placeholder="Filter package code or name..." oninput="renderDocControlHub()" />
+                        </div>
+                    </div>
+                    <div class="table-scroll" style="max-height:520px;overflow-y:auto;">
+                        <table class="data-table">
+                            <thead>
+                                <tr>
+                                    <th class="sortable-th" onclick="toggleSort('hubClientPkg', 'raw_package_code')">Pkg Code <span class="sort-ind" id="sort_hubClientPkg_raw_package_code">⇅</span></th>
+                                    <th class="sortable-th" onclick="toggleSort('hubClientPkg', 'package_name')">Vendor Package Name <span class="sort-ind" id="sort_hubClientPkg_package_name">⇅</span></th>
+                                    <th class="num sortable-th" onclick="toggleSort('hubClientPkg', 'total_submittals')">Total <span class="sort-ind" id="sort_hubClientPkg_total_submittals">⇅</span></th>
+                                    <th class="num sortable-th" onclick="toggleSort('hubClientPkg', 'in_review')">In Review <span class="sort-ind" id="sort_hubClientPkg_in_review">⇅</span></th>
+                                    <th class="num sortable-th" onclick="toggleSort('hubClientPkg', 'submitted')">Submitted <span class="sort-ind" id="sort_hubClientPkg_submitted">⇅</span></th>
+                                    <th class="num sortable-th" onclick="toggleSort('hubClientPkg', 'in_approval')">In Approval <span class="sort-ind" id="sort_hubClientPkg_in_approval">⇅</span></th>
+                                    <th class="num sortable-th" onclick="toggleSort('hubClientPkg', 'appr')">APPR <span class="sort-ind" id="sort_hubClientPkg_appr">⇅</span></th>
+                                    <th class="num sortable-th" onclick="toggleSort('hubClientPkg', 'awc')">AWC <span class="sort-ind" id="sort_hubClientPkg_awc">⇅</span></th>
+                                    <th class="num sortable-th" onclick="toggleSort('hubClientPkg', 'overdue_reviews')">Overdue <span class="sort-ind" id="sort_hubClientPkg_overdue_reviews">⇅</span></th>
+                                </tr>
+                            </thead>
+                            <tbody id="hubClientPkgTableBody"></tbody>
+                        </table>
+                    </div>
+                </div>
+
+                <div class="card">
+                    <div class="card-header">
+                        <div>
+                            <div class="card-title">All Contractual Client Review Submittals (Searchable &amp; Sortable Register)</div>
+                            <div class="card-subtitle">Filter and sort by Submittal ID, Package Code, Return Code (APPR, AWC, Pending), or Status</div>
+                        </div>
+                        <div class="filter-bar">
+                            <input type="text" id="hubSubmittalSearch" class="input-control" placeholder="Search AO-xxxx, Doc No., Package..." oninput="renderHubSubmittals()" />
+                            <select id="hubReturnFilter" class="select-control" onchange="renderHubSubmittals()">
+                                <option value="ALL">All Return Codes</option>
+                                <option value="PENDING">Pending Return (In Review)</option>
+                                <option value="APPR">APPR (Approved)</option>
+                                <option value="AWC">AWC (Approved w/ Comment)</option>
+                                <option value="OVERDUE">Overdue Review Only</option>
+                            </select>
+                        </div>
+                    </div>
+                    <div class="table-scroll" style="max-height:520px;overflow-y:auto;">
+                        <table class="data-table">
+                            <thead>
+                                <tr>
+                                    <th class="sortable-th" onclick="toggleSort('hubSubmittals', 'submittal_id')">Submittal ID <span class="sort-ind" id="sort_hubSubmittals_submittal_id">⇅</span></th>
+                                    <th class="sortable-th" onclick="toggleSort('hubSubmittals', 'vendor_package_code')">Pkg <span class="sort-ind" id="sort_hubSubmittals_vendor_package_code">⇅</span></th>
+                                    <th class="sortable-th" onclick="toggleSort('hubSubmittals', 'doc_no')">Document No. &amp; Title <span class="sort-ind" id="sort_hubSubmittals_doc_no">⇅</span></th>
+                                    <th class="center sortable-th" onclick="toggleSort('hubSubmittals', 'status')">Status <span class="sort-ind" id="sort_hubSubmittals_status">⇅</span></th>
+                                    <th class="sortable-th" onclick="toggleSort('hubSubmittals', 'focal_point_plan_finish')">Focal Point / Plan Finish <span class="sort-ind" id="sort_hubSubmittals_focal_point_plan_finish">⇅</span></th>
+                                    <th class="center sortable-th" onclick="toggleSort('hubSubmittals', 'return_code')">Return Code <span class="sort-ind" id="sort_hubSubmittals_return_code">⇅</span></th>
+                                    <th class="sortable-th" onclick="toggleSort('hubSubmittals', 'transmittal_out_no')">Transmittal Out <span class="sort-ind" id="sort_hubSubmittals_transmittal_out_no">⇅</span></th>
+                                </tr>
+                            </thead>
+                            <tbody id="hubSubmittalsTableBody"></tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+        </section>
+
+        <!-- ================================================================
+             TAB 4: 7 & 14 DAYS LOOK-AHEAD HUB (Master Schedule & Packages)
+             ================================================================ -->
+        <section class="tab-panel" id="panelLookAhead">
+            <!-- Look-Ahead KPI Metric Cards -->
+            <div class="lookahead-kpi-grid" style="display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:12px;margin-bottom:14px;">
+                <div class="card" style="padding:14px;">
+                    <div style="font-size:11px;font-weight:700;text-transform:uppercase;color:var(--text-muted);letter-spacing:0.5px;">7-Day Window Activities</div>
+                    <div style="font-size:26px;font-weight:800;color:var(--primary);margin:4px 0;" id="kpiLookAhead7dTotal">—</div>
+                    <div style="font-size:11.5px;color:var(--text-secondary);" id="kpiLookAhead7dSub">Master Plan &amp; Package Tasks</div>
+                </div>
+                <div class="card" style="padding:14px;">
+                    <div style="font-size:11px;font-weight:700;text-transform:uppercase;color:var(--text-muted);letter-spacing:0.5px;">14-Day Window Activities</div>
+                    <div style="font-size:26px;font-weight:800;color:var(--primary);margin:4px 0;" id="kpiLookAhead14dTotal">—</div>
+                    <div style="font-size:11.5px;color:var(--text-secondary);" id="kpiLookAhead14dSub">Master Plan &amp; Package Tasks</div>
+                </div>
+                <div class="card" style="padding:14px;border-left:4px solid var(--danger);">
+                    <div style="font-size:11px;font-weight:700;text-transform:uppercase;color:var(--danger);letter-spacing:0.5px;">Critical Path (TF=0)</div>
+                    <div style="font-size:26px;font-weight:800;color:var(--danger);margin:4px 0;" id="kpiLookAheadCritCount">—</div>
+                    <div style="font-size:11.5px;color:var(--text-secondary);">Highest Expediting Priority</div>
+                </div>
+                <div class="card" style="padding:14px;border-left:4px solid var(--warning);">
+                    <div style="font-size:11px;font-weight:700;text-transform:uppercase;color:var(--warning);letter-spacing:0.5px;">Package Milestones &amp; VDRL</div>
+                    <div style="font-size:26px;font-weight:800;color:var(--warning);margin:4px 0;" id="kpiLookAheadPkgCount">—</div>
+                    <div style="font-size:11.5px;color:var(--text-secondary);">Upcoming Gates &amp; Submittals</div>
+                </div>
+            </div>
+
+            <!-- Look-Ahead Interactive Table & Filter Controls -->
+            <div class="card">
+                <div class="card-header" style="flex-wrap:wrap;gap:12px;">
+                    <div>
+                        <div class="card-title" style="display:flex;align-items:center;gap:8px;">
+                            <span>🔮 7 &amp; 14 Days Look-Ahead Schedule Register</span>
+                            <span class="badge badge-info" id="lookAheadWindowBadge">7-Day Look-Ahead</span>
+                        </div>
+                        <div class="card-subtitle" id="lookAheadSubtitle">
+                            Integrated from Project Master Schedule &amp; Package Schedules (WPR Att. 3, VDRL, MOM)
+                        </div>
+                    </div>
+
+                    <!-- Toolbar Filters -->
+                    <div class="filter-bar" style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;">
+                        <!-- Window Selector -->
+                        <div class="segmented-control" id="lookAheadWindowToggle">
+                            <button type="button" class="seg-btn active" id="btnWindow7d" onclick="setLookAheadWindow(7)">
+                                <span>7-Day Window</span>
+                            </button>
+                            <button type="button" class="seg-btn" id="btnWindow14d" onclick="setLookAheadWindow(14)">
+                                <span>14-Day Window</span>
+                            </button>
+                        </div>
+
+                        <!-- Scope Selector -->
+                        <select id="lookAheadScopeFilter" class="select-control" onchange="renderLookAheadTable()">
+                            <option value="ALL">All Scopes (Master Schedule + Packages)</option>
+                            <option value="MASTER" id="optMasterScheduleScope">Master Schedule Only</option>
+                            <option value="PACKAGE">Package Level Only (WPR / VDRL / MOM)</option>
+                        </select>
+
+                        <!-- Critical Path Filter -->
+                        <select id="lookAheadCritFilter" class="select-control" onchange="renderLookAheadTable()">
+                            <option value="ALL">All Activities</option>
+                            <option value="CRITICAL_ONLY">Critical Path (TF=0) Only</option>
+                        </select>
+
+                        <!-- Category Filter -->
+                        <select id="lookAheadCatFilter" class="select-control" onchange="renderLookAheadTable()">
+                            <option value="ALL">All Categories</option>
+                            <option value="Procurement">Procurement</option>
+                            <option value="Fabrication">Fabrication &amp; Erection</option>
+                            <option value="Engineering">Engineering &amp; Design</option>
+                            <option value="VDRL">VDRL Submittal</option>
+                            <option value="Milestone">Milestones</option>
+                        </select>
+
+                        <!-- Search Box -->
+                        <input type="text" id="lookAheadSearchInput" class="input-control" placeholder="Search Activity, ID, Package..." oninput="renderLookAheadTable()" style="min-width:200px;" />
+                    </div>
+                </div>
+
+                <div class="table-scroll" style="max-height:600px;overflow-y:auto;">
+                    <table class="data-table">
+                        <thead>
+                            <tr>
+                                <th class="center sortable-th" onclick="toggleSort('lookahead', 'scope')">Scope <span class="sort-ind" id="sort_lookahead_scope">⇅</span></th>
+                                <th class="sortable-th" onclick="toggleSort('lookahead', 'package_or_id')">ID / Package <span class="sort-ind" id="sort_lookahead_package_or_id">⇅</span></th>
+                                <th class="sortable-th" onclick="toggleSort('lookahead', 'activity_name')">Activity Name &amp; Description <span class="sort-ind" id="sort_lookahead_activity_name">⇅</span></th>
+                                <th class="sortable-th" onclick="toggleSort('lookahead', 'category')">Category <span class="sort-ind" id="sort_lookahead_category">⇅</span></th>
+                                <th class="center sortable-th" onclick="toggleSort('lookahead', 'start_date')">Start Date <span class="sort-ind" id="sort_lookahead_start_date">⇅</span></th>
+                                <th class="center sortable-th" onclick="toggleSort('lookahead', 'finish_date')">Finish / Due <span class="sort-ind" id="sort_lookahead_finish_date">⇅</span></th>
+                                <th class="center sortable-th" onclick="toggleSort('lookahead', 'critical_path')">Critical Path <span class="sort-ind" id="sort_lookahead_critical_path">⇅</span></th>
+                                <th class="sortable-th" onclick="toggleSort('lookahead', 'source')">Source File <span class="sort-ind" id="sort_lookahead_source">⇅</span></th>
+                                <th class="center sortable-th" onclick="toggleSort('lookahead', 'status')">Status <span class="sort-ind" id="sort_lookahead_status">⇅</span></th>
+                            </tr>
+                        </thead>
+                        <tbody id="lookAheadTableBody"></tbody>
+                    </table>
+                </div>
+            </div>
+        </section>
+    </main>
+
+    <!-- ====================================================================
+         UPLOAD / DROP MODAL FOR ALL 5 DYNAMIC WEEKLY SOURCES
+         ==================================================================== -->
+    <div class="modal-backdrop" id="uploadModalBackdrop">
+        <div class="modal-card">
+            <div style="display:flex;justify-content:space-between;align-items:center;">
+                <div>
+                    <div class="card-title">Upload Weekly Dynamic Monitoring Documents</div>
+                    <div class="card-subtitle">Files are saved directly into their designated drop location and update the dashboard immediately</div>
+                </div>
+                <button type="button" class="btn-action" onclick="closeUploadModal()">✕ Close</button>
+            </div>
+
+            <div style="display:flex;flex-direction:column;gap:10px;">
+                <label class="kv-label" for="uploadDocType">1. Select Designated Document Category</label>
+                <select id="uploadDocType" class="select-control" style="width:100%;">
+                    <option value="WPR">1. Weekly Progress Report (WPR/ — .pdf or .docx) [Priority #1 + Gantt &amp; S-Curve Extraction]</option>
+                    <option value="MOM">2. Minutes of Meeting (MOM/ — .pdf) [Technical &amp; Sub-Order Expediting Extraction]</option>
+                    <option value="VDRL">3. Vendor Document Register List (VDRL/ — .xlsx) [Vendor Submission]</option>
+                    <option value="VDLR">4. Vendor Document Log Report (Root — .xls or .xlsx) [Official Client Review Log]</option>
+                    <option value="PSR">5. Procurement Plan / PSR (Root — .xlsx) [Priority #2 Fallback + Fixed ROS]</option>
+                    <option value="KOM">6. Kick-Off Meeting (KOM/ — .pdf or .pptx) [Manufacturer Detail]</option>
+                </select>
+            </div>
+
+            <div class="dropzone-area" id="dropzoneArea" onclick="document.getElementById('fileInputHidden').click()">
+                <input type="file" id="fileInputHidden" style="display:none;" multiple accept=".pdf,.docx,.xlsx,.xls,.pptx" onchange="handleFilesSelected(this.files)" />
+                <div style="font-size:28px;margin-bottom:8px;">📂</div>
+                <div style="font-weight:700;font-size:14px;color:var(--text-primary);margin-bottom:4px;">
+                    Click to select files or drag &amp; drop here
+                </div>
+                <div style="font-size:12px;color:var(--text-muted);">
+                    Supports WPR (.pdf, .docx), MOM (.pdf), VDRL (.xlsx), Client Document Log Report (.xls, .xlsx), PSR (.xlsx), and KOM (.pdf, .pptx)
+                </div>
+            </div>
+
+            <div style="display:flex;gap:10px;margin-top:4px;flex-wrap:wrap;">
+                <button type="button" class="btn-action btn-primary" onclick="triggerSyncAll()" title="Run full extraction across all local WPR, MOM, and KOM files into project-specific Export Data Files">
+                    ⚡ Extract &amp; Sync to Excel
+                </button>
+                <a id="btnDownloadExportFile" href="/api/download-export-file?project=ASK" class="btn-action" style="text-decoration:none;display:inline-flex;align-items:center;" download="Export Data File_ASK.xlsx" title="Download current project's Export Data File (< 1 MB)">
+                    💾 Download Export Data File (ASK)
+                </a>
+            </div>
+
+            <div id="uploadStatusBox" style="font-size:12.5px;color:var(--text-secondary);margin-top:6px;"></div>
+        </div>
+    </div>
+
+    <script src="app.js?v=20261107_1"></script>
+</body>
+</html>
