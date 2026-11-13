@@ -4,9 +4,9 @@ WEEKLY VENDOR PACKAGE MONITORING DASHBOARD (ASK & Z1F)
 OPERATIONAL GUIDE FOR MANUAL GITHUB WEB UPLOADS & RENDER.COM DEPLOYMENT
 ================================================================================
 
-DOCUMENT REFERENCE: MOS-VTRK-2026-001
-REVISION: 2.1 (Dual Project: ASK & Z1F — Live WPR/MOM & Report Date Cut-Off Priority)
-DATE: November 07, 2026
+DOCUMENT REFERENCE: MOS-VTRK-2026-002
+REVISION: 2.2 (Dual Project: ASK & Z1F — Construction Monitoring, 4x2 Platform Grid & T&I Timeline)
+DATE: November 13, 2026
 
 --------------------------------------------------------------------------------
 1. OBJECTIVE & ARCHITECTURAL OVERVIEW
@@ -111,16 +111,17 @@ STEP 2: Click "Add file" -> "Upload files"
 STEP 3: Drag and Drop the Required Files:
    [FILES YOU MUST UPLOAD]
    ✅ Export Data File_ASK.xlsx                  (~164 KB)
-   ✅ Export Data File_Z1F.xlsx                  (~78 KB)
+   ✅ Export Data File_Z1F.xlsx                  (~80 KB)
    ✅ New Procurement Plan (if updated this week) (~1.5 MB)
    ✅ New Client Document Log (if updated this week)(~450 KB)
    ✅ Updated source code & docs for this release:
-      • vendor_dashboard/extractors/wpr_mom_extractor.py
+      • index.html & app.js & styles.css
       • vendor_dashboard/ingestors.py
-      • index.html & app.js
+      • vendor_dashboard/reconciler.py
+      • .gitignore
       • export_dashboard_data.py
       • tests/test_parsers.py
-      • SPEC.md, Lesson_Learn.md, Handoff_Report.md, MANUAL_UPLOAD_WRAPUP.md, README.txt
+      • SPEC.md, Lesson_Learn.md, Handoff_Report.md, MANUAL_UPLOAD_WRAPUP.md, README.txt, README.md
 
    [FILES YOU MUST NEVER UPLOAD TO GITHUB]
    ❌ DO NOT upload folder KOM/   (Heavy slide decks, up to 100 MB+)
@@ -128,6 +129,7 @@ STEP 3: Drag and Drop the Required Files:
    ❌ DO NOT upload folder MOM/   (Meeting minutes PDFs)
    ❌ DO NOT upload folder VDRL/  (Hundreds of spreadsheet registers)
    ❌ DO NOT upload *.SCD-*.pdf   (Master Schedule PDFs: 12 MB+, 216 pages)
+   ❌ DO NOT upload superseded/   (Archived UI backups: moved to superseded/)
 
    Why? 
    GitHub web rejects uploads over 25 MB. The cloud server on Render does NOT 

@@ -62,6 +62,17 @@ The user operates from two distinct environments:
 - **One-Click Synchronization Button (`⚡ Sync All WPR/MOM to Excel`):** Triggers `/api/sync-all` to extract all newly dropped PDFs into the export Excel workbooks and reloads the dashboard cache.
 - **Direct Download Button (`💾 Download Export Data File`):** Triggers `/api/download-export-file?project=ASK|Z1F` to download the updated Excel workbook directly to the local desktop.
 
+### 2.7. Construction Monitoring, 4x2 Platform Grid & Offshore T&I Timeline (Nov 13, 2026 Release)
+- **Construction Monitoring View (`#viewConstruction`):** Dedicated executive screen launched via the `Const. Monitoring` top-level button. Synthesizes Master EPC schedules (`MM-ASK-1A-GEN01-PJM-SCD-0001.pdf` for ASK and `MM-ZTK-1F-GEN-PJM-SCD-0002.pdf` for Z1F) into:
+  1. *Vendor Delay Impact Area of Concern:* Cross-references vendor delivery dates against yard erection gates.
+  2. *14-Day Lookahead Construction Activities:* Active engineering, fabrication, and erection deliverables.
+  3. *Simplified 21-Day Gantt (7d past + 14d lookahead):* Interactive horizontal bars with duration, float badges, and Critical Path filters.
+- **Master Schedule Deduplication:** Automatic grouping and filtering of paginated/repeated Primavera WBS activities (`_clean_and_dedup_master_activities`).
+- **Critical Path Definition:** Strictly follows EPC Primavera criteria: `Total Float <= 0` defines critical path activities (`TF = 0.00d` or negative).
+- **ASK Dual-Platform Deck Breakdown:** Separate milestone pipelines for `WPA-01` and `WPA-02`, replacing generic main deck lift with granular deck levels: `Lower Column`, `Sump Deck`, `Lower Deck`, `Mezzanine Deck`, `Upper Deck`, and `Vent Boom`.
+- **Z1F 4x2 Responsive Platform Grid:** Displays all 4 platforms (`ZWP-21`, `ZWP-23`, `ZWP-22`, `ZWP-20`) in a 4-column by 2-row layout (Jacket & Pile row + Topside row) ordered chronologically by Ready for Transportation date. Topside cards break down total assembly into deck erection levels.
+- **Offshore T&I Timeline:** Visualizes the full marine campaign timeline (mobilization, heavy transport, jacket installation, floatover/topside mating, demobilization) extracted from Attachment 3 of `MM-ZTK-1F-GEN-PJM-SCD-0002.pdf`.
+
 ---
 
 ## 3. Architecture & File Structure
@@ -73,6 +84,23 @@ Vendor Tracking/
 ├── MANUAL_UPLOAD_WRAPUP.md                    # Quick cheat-sheet for manual GitHub & Render uploads
 ├── Lesson_Learn.md                            # Comprehensive engineering lessons learned & design rules
 ├── Handoff_Report.md                          # Full system architecture, release notes & handoff guide
+├── README.md                                  # Project overview and architecture documentation
+├── .gitignore                                 # Git exclusions including heavy PDFs and superseded/
+├── superseded/                                # Archived UI backups (e.g., backup_original_ui_20261113)
+├── Export Data File_ASK.xlsx                  # Synchronized ASK WPR, Gantt, MOM, KOM, Lookahead data (~164 KB)
+├── Export Data File_Z1F.xlsx                  # Synchronized Z1F MOM, KOM, Lookahead data (~80 KB)
+├── index.html                                 # Single-page application shell
+├── styles.css                                 # Glassmorphism design system & responsive 4x2 grid
+├── app.js                                     # Frontend state, Construction Monitoring & T&I widgets
+├── server.py                                  # Pure Python HTTP server & REST API
+├── export_dashboard_data.py                   # Extraction & synchronization engine
+├── tests/
+│   └── test_parsers.py                        # Complete automated test suite (15 suites)
+└── vendor_dashboard/
+    ├── ingestors.py                           # Master schedule deduplication, T&I parser, PDF/Excel ingestors
+    ├── reconciler.py                          # WPR > PSR priority, construction monitoring payload generator
+    ├── models.py                              # Package catalogs & metadata
+    └── extractors/                            # WPR & MOM extraction modules
 ├── server.py                                  # Zero-dependency Python HTTP server (REST API & static server)
 ├── export_dashboard_data.py                   # CLI synchronization script for ASK & Z1F
 ├── requirements.txt                           # Production Python dependencies (openpyxl, pymupdf, pandas, xlrd)

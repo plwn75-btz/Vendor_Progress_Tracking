@@ -4,13 +4,20 @@
    ========================================================================== */
 
 const APP_STATE = {
+    view: "executive",          // 'executive' (Management Summary) | 'construction' (Const. Monitoring) | 'detail' (Detail & Review)
+    constTab: "gantt",          // 'gantt' (-7d..+14d) | 'forecast14d' (14-Day Forecast) | 'all' (All Master Schedule Construction)
+    constSearch: "",
+    constCritOnly: false,
+    execFocus: "ACTIONABLE",    // Executive priority list focus: 'ACTIONABLE' | 'ALREADY_DELAYED' | 'HIGH_RISK' | 'LOW_RISK' | 'HEALTHY'
+    execShowAllPriority: false, // Executive priority list: top 10 vs all
     project: "ASK",             // 'ASK' | 'Z1F' (Separated & Switchable, starts on ASK)
     mode: "live",               // 'live' (Strict WPR #1 > SCD/PSR/VDRL #2) | 'sample' (PLC WPR Dev Sample)
     activeTab: "package",       // 'package' | 'portfolio' | 'doccontrol' | 'lookahead'
     selectedPkgCode: "CIP",     // Starts on CIP (Live WPR-0010 Cut-off 2026-10-27 + MOM-0010)
     scurveView: "package",      // 'package' (Selected Pkg S-Curve) | 'project' (Weighted All Pkgs S-Curve)
     showWeightsTable: true,
-    showIncorporatedDetails: true,
+    showIncorporatedDetails: false,
+    showSourcesAudit: false,
     lastUploadBannerMsg: "",
     execScope: "core",          // 'core' (31 Core Packages) | 'all' (All 108 Master Plan / PSR Equipment)
     execMitigationFilter: "ACTIONABLE", // 'ACTIONABLE' | 'ALREADY_DELAYED' | 'HIGH_RISK' | 'CRITICAL_PATH' | 'LOW_RISK' | 'ALL'
@@ -175,6 +182,7 @@ function toggleTheme() {
     applyTheme();
     if (APP_STATE.snapshot) {
         renderSelectedPackageWorkspace();
+        renderExecutiveView();
     }
 }
 
@@ -193,6 +201,7 @@ function applyTheme() {
    ========================================================================== */
 document.addEventListener("DOMContentLoaded", () => {
     initTheme();
+    initView();
     setupDragAndDrop();
     refreshDashboard(false);
 });
@@ -536,13 +545,24 @@ function switchProject(projectCode) {
 }
 
 function switchMode(mode) {
-    if (APP_STATE.mode === mode) return;
-    APP_STATE.mode = mode;
+    // Live execution mode is now permanently active; keep guarded for compatibility
+    APP_STATE.mode = "live";
+    const btnSample = document.getElementById("btnModeSample");
+    const btnLive = document.getElementById("btnModeLive");
+    if (btnSample) btnSample.classList.toggle("active", false);
+    if (btnLive) btnLive.classList.toggle("active", true);
+}
 
-    document.getElementById("btnModeSample").classList.toggle("active", mode === "sample");
-    document.getElementById("btnModeLive").classList.toggle("active", mode === "live");
-
-    refreshDashboard(false);
+function toggleSourcesAudit() {
+    APP_STATE.showSourcesAudit = !APP_STATE.showSourcesAudit;
+    const body = document.getElementById("sourcesAuditBody");
+    const btn = document.getElementById("btnToggleSourcesAudit");
+    if (body) body.style.display = APP_STATE.showSourcesAudit ? "block" : "none";
+    if (btn) {
+        btn.innerHTML = APP_STATE.showSourcesAudit
+            ? "▲ Hide Data Sources &amp; Incorporated Files"
+            : "▼ Show Data Sources &amp; Incorporated Files";
+    }
 }
 
 function switchTab(tabName) {
@@ -628,6 +648,11 @@ function renderAll() {
 
     renderIncorporatedFilesBanner();
 
+    const auditSummaryEl = document.getElementById("sourcesAuditSummaryText");
+    if (auditSummaryEl) {
+        auditSummaryEl.textContent = `Live Mode • ${src.wpr_files_count || 0} WPR, ${src.mom_files_count || 0} MOM, ${src.vdrl_packages_count || 0} VDRL, ${src.kom_packages_count || 0} KOM • SCD Rev. ${src.master_schedule_rev || defaultMasterRev}`;
+    }
+
     Object.keys(APP_STATE.sortState).forEach(k => updateSortHeadersUI(k));
 
     renderExecutiveKpiStrip(snap.portfolio_kpis || {});
@@ -637,11 +662,18 @@ function renderAll() {
     renderPortfolioTable();
     renderDocControlHub();
     renderLookAheadHub();
+    renderExecutiveView();
+    renderConstructionMonitoringView();
 }
 
 function toggleIncorporatedFilesDetails() {
     APP_STATE.showIncorporatedDetails = !APP_STATE.showIncorporatedDetails;
     renderIncorporatedFilesBanner();
+
+    const auditSummaryEl = document.getElementById("sourcesAuditSummaryText");
+    if (auditSummaryEl) {
+        auditSummaryEl.textContent = `Live Mode • ${src.wpr_files_count || 0} WPR, ${src.mom_files_count || 0} MOM, ${src.vdrl_packages_count || 0} VDRL, ${src.kom_packages_count || 0} KOM • SCD Rev. ${src.master_schedule_rev || defaultMasterRev}`;
+    }
 }
 
 function renderIncorporatedFilesBanner() {
@@ -790,6 +822,7 @@ function renderExecutiveKpiStrip(kpis) {
 function switchExecScope(scopeMode) {
     APP_STATE.execScope = scopeMode;
     renderTab1ExecutiveSummary();
+    renderExecutiveView();
 }
 
 function setExecMitigationFilter(filterVal) {
@@ -2711,4 +2744,954 @@ function renderLookAheadTable() {
             <td class="center">${statusBadge}</td>
         </tr>`;
     }).join("");
+}
+
+/* ==========================================================================
+   EXECUTIVE SUMMARY (MANAGEMENT VIEW) & DRILL-DOWN NAVIGATION
+   Uses the exact same backend snapshot without altering any data logic.
+   ========================================================================== */
+function initView() {
+    let initial = "executive";
+    try {
+        const params = new URLSearchParams(window.location.search);
+        const qv = params.get("view");
+        if (qv === "detail" || qv === "executive" || qv === "construction") {
+            initial = qv;
+        }
+    } catch (_) {}
+    switchView(initial);
+}
+
+function switchView(viewName) {
+    const v = (viewName === "detail" || viewName === "construction") ? viewName : "executive";
+    APP_STATE.view = v;
+    document.body.setAttribute("data-view", v);
+
+    const btnExec = document.getElementById("btnViewExec");
+    const btnConst = document.getElementById("btnViewConst");
+    const btnDetail = document.getElementById("btnViewDetail");
+    const viewExec = document.getElementById("viewExecutive");
+    const viewConst = document.getElementById("viewConstruction");
+    const viewDetail = document.getElementById("viewDetail");
+
+    if (btnExec) btnExec.classList.toggle("active", v === "executive");
+    if (btnConst) btnConst.classList.toggle("active", v === "construction");
+    if (btnDetail) btnDetail.classList.toggle("active", v === "detail");
+    if (viewExec) viewExec.classList.toggle("active", v === "executive");
+    if (viewConst) viewConst.classList.toggle("active", v === "construction");
+    if (viewDetail) viewDetail.classList.toggle("active", v === "detail");
+
+    window.scrollTo({ top: 0, behavior: "smooth" });
+}
+
+function drillDownPackage(pkgCode) {
+    if (pkgCode) {
+        selectPackage(pkgCode, true);
+    }
+    switchView("detail");
+    switchTab("package");
+}
+
+function drillDownTab(tabName) {
+    switchView("detail");
+    switchTab(tabName || "package");
+}
+
+function setExecFocus(focusVal) {
+    APP_STATE.execFocus = focusVal || "ACTIONABLE";
+    APP_STATE.execShowAllPriority = false;
+    renderExecutiveView();
+}
+
+function toggleExecShowAllPriority() {
+    APP_STATE.execShowAllPriority = !APP_STATE.execShowAllPriority;
+    renderExecutiveView();
+}
+
+function renderExecutiveSvgSCurve(sc) {
+    const pts = (sc && Array.isArray(sc.points)) ? sc.points : [];
+    const labelColor = APP_STATE.theme === "light" ? "#475569" : "#94a3b8";
+    const gridStroke = APP_STATE.theme === "light" ? "rgba(100,116,139,0.22)" : "rgba(148,163,184,0.14)";
+    const dotStroke = APP_STATE.theme === "light" ? "#ffffff" : "#0a0f1d";
+    const cutColor = APP_STATE.theme === "light" ? "#d97706" : "#fbbf24";
+
+    if (!pts.length) {
+        return `<div style="padding:32px;text-align:center;color:var(--text-muted);">No S-Curve data available.</div>`;
+    }
+
+    const W = 680, H = 220;
+    const padL = 42, padR = 16, padT = 16, padB = 30;
+    const plotW = W - padL - padR;
+    const plotH = H - padT - padB;
+
+    const xForIdx = (i) => padL + (i / Math.max(pts.length - 1, 1)) * plotW;
+    const yForPct = (pct) => padT + plotH - (Math.min(Math.max(Number(pct || 0), 0), 100) / 100) * plotH;
+
+    const plannedCoords = pts.map((p, i) => `${xForIdx(i).toFixed(1)},${yForPct(p.planned_pct).toFixed(1)}`);
+    const plannedArea = `${xForIdx(0).toFixed(1)},${(padT + plotH).toFixed(1)} ` + plannedCoords.join(" ") + ` ${xForIdx(pts.length - 1).toFixed(1)},${(padT + plotH).toFixed(1)}`;
+
+    const actualPts = pts.map((p, i) => ({ ...p, idx: i })).filter(p => p.actual_pct !== null && p.actual_pct !== undefined);
+    const actualCoords = actualPts.map(p => `${xForIdx(p.idx).toFixed(1)},${yForPct(p.actual_pct).toFixed(1)}`);
+    const cutOffIdx = actualPts.length > 0 ? actualPts[actualPts.length - 1].idx : 3;
+    const cutX = xForIdx(cutOffIdx);
+
+    let gridLines = "";
+    [0, 25, 50, 75, 100].forEach(val => {
+        const y = yForPct(val).toFixed(1);
+        gridLines += `
+            <line x1="${padL}" y1="${y}" x2="${W - padR}" y2="${y}" stroke="${gridStroke}" stroke-dasharray="3,3" />
+            <text x="${padL - 8}" y="${Number(y) + 4}" text-anchor="end" fill="${labelColor}" font-size="10">${val}%</text>
+        `;
+    });
+
+    let xLabels = "";
+    pts.forEach((p, i) => {
+        if (i === 0 || (i + 1) % 5 === 0 || i === pts.length - 1 || i === cutOffIdx) {
+            const x = xForIdx(i).toFixed(1);
+            xLabels += `<text x="${x}" y="${H - 8}" text-anchor="middle" fill="${i === cutOffIdx ? cutColor : labelColor}" font-size="10" font-weight="${i === cutOffIdx ? "700" : "400"}">${esc(p.week)}</text>`;
+        }
+    });
+
+    const actualDots = actualPts.map(p => `
+        <circle cx="${xForIdx(p.idx).toFixed(1)}" cy="${yForPct(p.actual_pct).toFixed(1)}" r="4" fill="#10b981" stroke="${dotStroke}" stroke-width="1.5">
+            <title>${esc(p.week)} (${esc(p.date)}): Actual ${p.actual_pct}% vs Planned ${p.planned_pct}%</title>
+        </circle>
+    `).join("");
+
+    return `
+        <svg viewBox="0 0 ${W} ${H}" style="width:100%;height:auto;display:block;">
+            <defs>
+                <linearGradient id="execPlanGrad" x1="0" y1="0" x2="0" y2="1">
+                    <stop offset="0%" stop-color="#38bdf8" stop-opacity="0.28" />
+                    <stop offset="100%" stop-color="#38bdf8" stop-opacity="0.0" />
+                </linearGradient>
+            </defs>
+            ${gridLines}
+            <polygon points="${plannedArea}" fill="url(#execPlanGrad)" />
+            <polyline fill="none" stroke="#38bdf8" stroke-width="2.4" points="${plannedCoords.join(" ")}" />
+            ${actualCoords.length > 1 ? `<polyline fill="none" stroke="#10b981" stroke-width="3" points="${actualCoords.join(" ")}" />` : ""}
+            <line x1="${cutX.toFixed(1)}" y1="${padT}" x2="${cutX.toFixed(1)}" y2="${padT + plotH}" stroke="#f59e0b" stroke-width="1.6" stroke-dasharray="4,4" />
+            ${actualDots}
+            ${xLabels}
+        </svg>
+    `;
+}
+
+function renderTiTimelineWidget(tiItems, showOpenConstBtn) {
+    if (!Array.isArray(tiItems) || !tiItems.length) return "";
+    const minMs = _parseIsoDayMs("2027-07-01");
+    const maxMs = _parseIsoDayMs("2028-03-01");
+    const spanMs = maxMs - minMs;
+    const months = ["Jul 27", "Aug 27", "Sep 27", "Oct 27", "Nov 27", "Dec 27", "Jan 28", "Feb 28"];
+
+    const rowsHtml = tiItems.map(it => {
+        const sMs = Math.max(minMs, _parseIsoDayMs(it.start_date) || minMs);
+        const eMs = Math.min(maxMs, Math.max(sMs + 86400000, _parseIsoDayMs(it.finish_date) || sMs));
+        const leftPct = ((sMs - minMs) / spanMs) * 100;
+        const widthPct = Math.max(1.5, ((eMs - sMs) / spanMs) * 100);
+        const tone = it.tone === "whp" ? "ti-whp" : (it.tone === "hlv" ? "ti-hlv" : (it.tone === "huc" ? "ti-huc" : "ti-barge"));
+        const shortDates = `${String(it.start_date || "").slice(2)} → ${String(it.finish_date || "").slice(2)}`;
+        return `
+            <div class="ti-tl-row">
+                <div class="ti-tl-label">
+                    <span class="ti-tl-group">${esc(it.group || "")}</span>
+                    <span class="ti-tl-name" title="${esc(it.item)}">${esc(it.item)}</span>
+                    <span class="ti-tl-dates font-mono">${esc(shortDates)}</span>
+                </div>
+                <div class="ti-tl-track">
+                    <div class="ti-tl-bar ${tone}" style="left:${leftPct.toFixed(2)}%;width:${widthPct.toFixed(2)}%;" title="${esc(it.item)} (${esc(it.start_date)} → ${esc(it.finish_date)})"></div>
+                </div>
+            </div>
+        `;
+    }).join("");
+
+    return `
+        <div class="ti-tl-card">
+            <div class="ti-tl-head">
+                <div>
+                    <div class="ti-tl-title">🚢 Transportation &amp; Installation (T&amp;I) Timeline — Attachment 3 (MM-ZTK-1F-GEN-PJM-SCD-0002.pdf)</div>
+                    <div class="ti-tl-sub">Marine Spreads (LB1/LB2, PB1/PB2, TB1/TB2, HLV), Offshore WHP Installation (ZWP-21 → 23 → 22 → 20) &amp; HUC</div>
+                </div>
+                ${showOpenConstBtn ? `<button type="button" class="btn-action" style="padding:5px 11px;font-size:11.5px;" onclick="setConstTab('ti');switchView('construction')">Open Full T&amp;I in Const. Monitoring →</button>` : ""}
+            </div>
+            <div class="ti-tl-legend">
+                <span><i class="cm-dot" style="background:#3b82f6;"></i> Launch / Pile / Topside Barges</span>
+                <span><i class="cm-dot" style="background:#8b5cf6;"></i> HLV Campaign</span>
+                <span><i class="cm-dot" style="background:#10b981;"></i> Offshore WHP Install</span>
+                <span><i class="cm-dot" style="background:#f59e0b;"></i> HUC &amp; Pipeline Pre-Comm</span>
+            </div>
+            <div class="ti-tl-wrap">
+                <div class="ti-tl-header">
+                    <div class="ti-tl-label-head">T&amp;I Vessel / Platform Campaign</div>
+                    <div class="ti-tl-months">${months.map(m => `<div class="ti-tl-month">${m}</div>`).join("")}</div>
+                </div>
+                ${rowsHtml}
+            </div>
+        </div>
+    `;
+}
+
+function renderExecutiveView() {
+    const root = document.getElementById("execViewRoot");
+    const snap = APP_STATE.snapshot;
+    if (!root || !snap) return;
+
+    const kpis = snap.portfolio_kpis || {};
+    const src = snap.sources_summary || {};
+    const exec = snap.executive_findings_summary || {};
+    const sc = snap.project_overall_scurve || {};
+    const la = snap.lookahead_hub || {};
+    const pkgs = snap.packages || [];
+    const kd = exec.project_key_dates || {};
+
+    const isCoreScope = APP_STATE.execScope === "core";
+    const tierGroup = (isCoreScope ? exec.tiers_core : exec.tiers_all) || exec.tiers_all || {
+        total: 0,
+        already_delayed: { count: 0, pct: 0, packages: [] },
+        high_risk: { count: 0, pct: 0, packages: [] },
+        low_risk: { count: 0, pct: 0, packages: [] },
+        healthy: { count: 0, pct: 0, packages: [] },
+    };
+
+    const tDelayed = tierGroup.already_delayed || { count: 0, pct: 0, packages: [] };
+    const tHigh = tierGroup.high_risk || { count: 0, pct: 0, packages: [] };
+    const tLow = tierGroup.low_risk || { count: 0, pct: 0, packages: [] };
+    const tHealthy = tierGroup.healthy || { count: 0, pct: 0, packages: [] };
+    const totalScope = tierGroup.total || 0;
+
+    const actPct = Number(kpis.overall_actual_pct || sc.actual_to_date_pct || 0);
+    const planPct = Number(kpis.overall_planned_pct || sc.planned_to_date_pct || 0);
+    const varPct = Number(kpis.overall_variance_pct ?? sc.variance_pct ?? (actPct - planPct));
+    const varSign = varPct > 0 ? `+${varPct.toFixed(1)}%` : `${varPct.toFixed(1)}%`;
+
+    const isZ1F = (snap.project || APP_STATE.project) === "Z1F";
+    const masterFile = exec.active_master_schedule_file || src.master_schedule_file || (isZ1F ? "MM-ZTK-1F-GEN-PJM-SCD-0002.pdf" : "MM-ASK-1A-GEN01-PJM-SCD-0001.pdf");
+    const masterRev = exec.active_master_schedule_rev || src.master_schedule_rev || (isZ1F ? "C1" : "B1");
+
+    const sum7 = la.summary_7d || {};
+    const sum14 = la.summary_14d || {};
+
+    // Live WPR / MOM packages for quick management signals
+    const livePkgs = pkgs.filter(p => p.has_live_wpr || p.has_live_mom);
+    const liveSignalsHtml = livePkgs.length
+        ? livePkgs.map(p => {
+            const ov = p.overall_progress || {};
+            const mom = p.mom_summary || {};
+            const hl = p.package_highlights || {};
+            const tags = [];
+            if (p.has_live_wpr) tags.push(`WPR: ${Number(ov.actual_pct || 0).toFixed(1)}% / ${Number(ov.planned_pct || 0).toFixed(1)}%`);
+            if (p.has_live_mom) tags.push(`MOM: ${mom.open_count || 0} Open`);
+            if (p.has_milestone_discrepancy) tags.push(`⚠️ +${p.milestone_discrepancy_days}d Gantt vs MS`);
+            return `
+                <button type="button" class="ex-live-chip" onclick="drillDownPackage('${esc(p.package_code)}')" title="Click to open ${esc(p.package_name)} in Detail & Review">
+                    <div class="ex-live-chip-top">
+                        <strong>[${esc(p.package_code)}] ${esc(p.package_name)}</strong>
+                        <span class="badge ${hl.ros_tone === "danger" ? "badge-danger" : (hl.ros_tone === "warning" ? "badge-warning" : "badge-success")}" style="font-size:10px;padding:1px 6px;">
+                            ${p.eta_date ? `ETA ${esc(p.eta_date)}` : "Active"}
+                        </span>
+                    </div>
+                    <div class="ex-live-chip-sub">${esc(tags.join(" • "))} • Cut-off: ${esc(p.cut_off_date || mom.cut_off_date || "—")}</div>
+                </button>
+            `;
+        }).join("")
+        : `<div style="font-size:12px;color:var(--text-muted);padding:8px 0;">No live WPR/MOM packages uploaded yet — tracking from Master Schedule &amp; Procurement Plan.</div>`;
+
+    // Build Priority Action & Exception table rows
+    const delayedPkgs = (tDelayed.packages || []).map(x => ({ ...x, _tier: "DELAYED" }));
+    const highPkgs = (tHigh.packages || []).map(x => ({ ...x, _tier: "HIGH" }));
+    const lowPkgs = (tLow.packages || []).map(x => ({ ...x, _tier: "LOW" }));
+    const healthyPkgs = (tHealthy.packages || []).map(x => ({ ...x, _tier: "HEALTHY" }));
+
+    const focus = APP_STATE.execFocus || "ACTIONABLE";
+    let priorityRows = [];
+    if (focus === "ALREADY_DELAYED") priorityRows = delayedPkgs;
+    else if (focus === "HIGH_RISK") priorityRows = highPkgs;
+    else if (focus === "LOW_RISK") priorityRows = lowPkgs;
+    else if (focus === "HEALTHY") priorityRows = healthyPkgs;
+    else priorityRows = [...delayedPkgs, ...highPkgs];
+
+    const totalMatching = priorityRows.length;
+    const displayLimit = APP_STATE.execShowAllPriority ? totalMatching : 10;
+    const shownRows = priorityRows.slice(0, displayLimit);
+
+    const priorityRowsHtml = shownRows.length
+        ? shownRows.map(item => {
+            const tierBadge = item._tier === "DELAYED"
+                ? `<span class="badge badge-danger">🔴 Delayed +${item.effective_delay_days || item.master_delay_days || 0}d</span>`
+                : item._tier === "HIGH"
+                ? `<span class="badge badge-warning">🟠 High Risk</span>`
+                : item._tier === "LOW"
+                ? `<span class="badge badge-info">🟡 Low Risk</span>`
+                : `<span class="badge badge-success">🟢 Healthy</span>`;
+
+            const cpTag = item.is_critical_path
+                ? `<span class="badge badge-danger" style="font-size:9.5px;padding:1px 5px;margin-left:4px;">⚡ TF=0</span>`
+                : "";
+
+            return `
+                <tr class="clickable-row" onclick="drillDownPackage('${esc(item.package_code)}')">
+                    <td>
+                        <div style="font-weight:700;color:var(--text-primary);">${esc(item.package_name)}${cpTag}</div>
+                        <div style="font-size:11px;color:var(--text-muted);">${esc(item.package_code)} • ${esc(item.discipline || "—")}</div>
+                    </td>
+                    <td class="center">${tierBadge}</td>
+                    <td>
+                        <div style="font-size:12px;"><strong>ETA:</strong> <span style="color:${item._tier === "DELAYED" ? "var(--accent-rose)" : "var(--text-primary)"};font-weight:700;">${fmtBlank(item.eta_date)}</span></div>
+                        <div style="font-size:11px;color:var(--text-muted);"><strong>ROS:</strong> ${fmtBlank(item.ros_date || item.master_eta_date)}</div>
+                    </td>
+                    <td style="font-size:12px;color:var(--text-primary);">${esc(item.smart_issue || "No active bottleneck")}</td>
+                    <td style="font-size:12px;color:var(--text-secondary);">
+                        <div>${esc(item.smart_mitigation || "Continue standard monitoring")}</div>
+                        <div style="font-size:10.5px;color:var(--text-muted);margin-top:3px;">Owner: ${esc(item.mitigation_owner || "PMT / Vendor")} • Target: ${esc(item.mitigation_deadline || "—")}</div>
+                    </td>
+                    <td class="center">
+                        <button type="button" class="btn-action" style="padding:4px 10px;font-size:11px;" onclick="event.stopPropagation();drillDownPackage('${esc(item.package_code)}')">Review →</button>
+                    </td>
+                </tr>
+            `;
+        }).join("")
+        : `<tr><td colspan="6" class="center" style="padding:20px;color:var(--text-muted);">No packages in this category.</td></tr>`;
+
+    // Compact Project Key Dates:
+    // - Z1F: Project-wide dates + grouped by platform (ZWP-20, ZWP-21, ZWP-22, ZWP-23), each sorted by date
+    // - ASK: 6 key-date boxes sorted chronologically by date
+    let keyDatesHtml = "";
+    if (Array.isArray(kd.platforms) && kd.platforms.length) {
+        const projWideItems = [
+            { label: "All Critical PO Issued", val: kd.all_critical_po_issued },
+            { label: "All Critical Equipment at Worksite", val: kd.all_critical_equipment_at_worksite },
+            { label: "Provisional Acceptance Certificate", val: kd.provisional_acceptance },
+        ].filter(x => x.val).sort((a, b) => String(a.val).localeCompare(String(b.val)));
+
+        const platformCardsHtml = kd.platforms.map(pl => {
+            const msList = (pl.milestones || []).slice().sort((a, b) => String(a.date || "").localeCompare(String(b.date || "")));
+            return `
+                <div class="ex-platform-card">
+                    <div class="ex-platform-head">${esc(pl.platform)}</div>
+                    <div class="ex-platform-list">
+                        ${msList.map(m => `
+                            <div class="ex-platform-row">
+                                <span class="ex-platform-lbl">${esc(m.label)}</span>
+                                <strong class="ex-platform-dt font-mono">${esc(m.date)}</strong>
+                            </div>
+                        `).join("")}
+                    </div>
+                </div>
+            `;
+        }).join("");
+
+        keyDatesHtml = `
+            ${projWideItems.length ? `
+                <div class="ex-keydates-grid">
+                    ${projWideItems.map(x => `
+                        <div class="ex-keydate-item">
+                            <span class="ex-keydate-label">${esc(x.label)}</span>
+                            <strong class="ex-keydate-val">${esc(x.val)}</strong>
+                        </div>
+                    `).join("")}
+                </div>
+            ` : ""}
+            <div class="ex-platform-grid ${kd.platforms.length >= 8 ? "grid-4x2" : ""}">
+                ${platformCardsHtml}
+            </div>
+            ${renderTiTimelineWidget(kd.ti_timeline, true)}
+        `;
+    } else {
+        const keyDateItems = [
+            { label: "All Critical Equipment at Site", val: kd.all_critical_equipment_at_worksite },
+            { label: "First Cut Steel (WPA-01)", val: kd.first_cut_steel_wpa01 },
+            { label: "Main Deck Lift (WPA-01)", val: kd.lifting_main_deck_wpa01 },
+            { label: "Onshore MC / Pre-Comm Start", val: kd.onshore_mc_precomm_start_wpa01 },
+            { label: "Mechanical Completion (WPA-01)", val: kd.mechanical_completion_wpa01 },
+            { label: "Ready for Sail-Away (WPA-01)", val: kd.ready_for_transportation_wpa01 },
+        ].filter(x => x.val).sort((a, b) => String(a.val).localeCompare(String(b.val)));
+
+        keyDatesHtml = keyDateItems.length
+            ? `<div class="ex-keydates-grid">
+                ${keyDateItems.map(x => `
+                    <div class="ex-keydate-item">
+                        <span class="ex-keydate-label">${esc(x.label)}</span>
+                        <strong class="ex-keydate-val">${esc(x.val)}</strong>
+                    </div>
+                `).join("")}
+               </div>`
+            : "";
+    }
+
+    root.innerHTML = `
+        <!-- 1. EXECUTIVE HERO HEADER -->
+        <section class="ex-hero card">
+            <div class="ex-hero-main">
+                <div class="ex-hero-eyebrow">EXECUTIVE MANAGEMENT SUMMARY • ${esc(snap.project)} PROJECT</div>
+                <h2 class="ex-hero-title">${esc(snap.project_full_name || snap.project)}</h2>
+                <div class="ex-hero-meta">
+                    <span>📅 Synced: <strong>${esc(snap.generated_at)}</strong></span>
+                    <span>•</span>
+                    <span>📐 Governing ROS: <strong>${esc(masterFile)} (Rev. ${esc(masterRev)})</strong></span>
+                    <span>•</span>
+                    <span>📦 Procurement Plan: <strong>${esc(src.psr_file || "—")}</strong></span>
+                </div>
+            </div>
+            <div class="ex-hero-actions">
+                <div class="segmented-control" title="Switch scope between Core Monitored Packages and All Master Plan Equipment">
+                    <button type="button" class="seg-btn ${isCoreScope ? "active" : ""}" onclick="switchExecScope('core')">
+                        <span>Core Packages (${kpis.core_packages_count || 31})</span>
+                    </button>
+                    <button type="button" class="seg-btn ${!isCoreScope ? "active" : ""}" onclick="switchExecScope('all')">
+                        <span>All Equipment (${kpis.total_packages || 108})</span>
+                    </button>
+                </div>
+                <button type="button" class="btn-action btn-const-monitoring" onclick="switchView('construction')" title="Open Construction Monitoring from Master Schedule & Vendor Impact">
+                    🏗 Const. Monitoring
+                </button>
+                <button type="button" class="btn-action btn-primary" onclick="drillDownTab('package')">
+                    🔍 Inspect Detail &amp; Review →
+                </button>
+            </div>
+        </section>
+
+        <!-- 2. 4 HIGH-SIGNAL EXECUTIVE KPI CARDS (Click any card to drill down) -->
+        <section class="ex-kpi-grid">
+            <div class="ex-kpi-card tone-emerald" onclick="drillDownTab('package')" title="Click to inspect package S-Curves & 9-Element details">
+                <div class="ex-kpi-label">1. OVERALL PROJECT PROGRESS</div>
+                <div class="ex-kpi-num">${actPct.toFixed(1)}% <span class="ex-kpi-subnum">vs ${planPct.toFixed(1)}% Plan</span></div>
+                <div class="ex-kpi-foot">
+                    <span class="badge ${varPct >= 0 ? "badge-success" : "badge-warning"}">${varSign} Variance</span>
+                    <span class="ex-drill-hint">Inspect S-Curve →</span>
+                </div>
+            </div>
+
+            <div class="ex-kpi-card ${tDelayed.count > 0 ? "tone-rose" : "tone-blue"}" onclick="drillDownTab('portfolio')" title="Click to inspect All Packages Matrix">
+                <div class="ex-kpi-label">2. DELIVERY vs. ROS (${isCoreScope ? "CORE PKGS" : "ALL EQUIP."})</div>
+                <div class="ex-kpi-num">${tDelayed.count} Delayed <span class="ex-kpi-subnum">/ ${totalScope}</span></div>
+                <div class="ex-kpi-foot">
+                    <span class="badge badge-warning">${tHigh.count} High Risk</span>
+                    <span class="badge badge-success">${tHealthy.count} Healthy</span>
+                    <span class="ex-drill-hint">All Packages →</span>
+                </div>
+            </div>
+
+            <div class="ex-kpi-card tone-amber" onclick="drillDownTab('doccontrol')" title="Click to inspect VDRL & Client Review Registers">
+                <div class="ex-kpi-label">3. DOCUMENT CONTROL (VDRL &amp; D2)</div>
+                <div class="ex-kpi-num">${Number(kpis.vdrl_submitted_pct || 0).toFixed(1)}% <span class="ex-kpi-subnum">(${kpis.vdrl_submitted_docs || 0}/${kpis.vdrl_total_docs || 0})</span></div>
+                <div class="ex-kpi-foot">
+                    <span class="badge ${(kpis.vdrl_overdue_docs || 0) > 0 ? "badge-danger" : "badge-success"}">${kpis.vdrl_overdue_docs || 0} VDRL Overdue</span>
+                    <span class="badge badge-purple">${kpis.client_log_in_review || 0} Client Review</span>
+                </div>
+            </div>
+
+            <div class="ex-kpi-card tone-purple" onclick="drillDownTab('lookahead')" title="Click to inspect 7 & 14-Day Look-Ahead Schedule">
+                <div class="ex-kpi-label">4. 7 / 14-DAY CRITICAL LOOK-AHEAD</div>
+                <div class="ex-kpi-num">${sum7.total || 0} <span class="ex-kpi-subnum">7-Day (${sum14.total || 0} in 14d)</span></div>
+                <div class="ex-kpi-foot">
+                    <span class="badge badge-danger">${sum7.critical_path_count || 0} TF=0 Critical</span>
+                    <span class="ex-drill-hint">Look-Ahead →</span>
+                </div>
+            </div>
+        </section>
+
+        <!-- 3. PORTFOLIO HEALTH DISTRIBUTION BAR + INTERACTIVE TIER CHIPS -->
+        <section class="card ex-health-card">
+            <div class="ex-section-head">
+                <div>
+                    <div class="card-title">Portfolio Schedule Health Distribution (${isCoreScope ? `${totalScope} Core Packages` : `${totalScope} Total Equipment`})</div>
+                    <div class="card-subtitle">Click any health category below to filter the Management Attention &amp; Action List</div>
+                </div>
+                <div class="ex-tier-chips">
+                    <button type="button" class="ex-tier-chip ${focus === "ACTIONABLE" ? "active" : ""}" onclick="setExecFocus('ACTIONABLE')">
+                        🔴+🟠 Action Required (${tDelayed.count + tHigh.count})
+                    </button>
+                    <button type="button" class="ex-tier-chip ${focus === "ALREADY_DELAYED" ? "active" : ""}" onclick="setExecFocus('ALREADY_DELAYED')">
+                        🔴 Delayed (${tDelayed.count})
+                    </button>
+                    <button type="button" class="ex-tier-chip ${focus === "HIGH_RISK" ? "active" : ""}" onclick="setExecFocus('HIGH_RISK')">
+                        🟠 High Risk (${tHigh.count})
+                    </button>
+                    <button type="button" class="ex-tier-chip ${focus === "LOW_RISK" ? "active" : ""}" onclick="setExecFocus('LOW_RISK')">
+                        🟡 Low Risk (${tLow.count})
+                    </button>
+                    <button type="button" class="ex-tier-chip ${focus === "HEALTHY" ? "active" : ""}" onclick="setExecFocus('HEALTHY')">
+                        🟢 Healthy (${tHealthy.count})
+                    </button>
+                </div>
+            </div>
+            <div class="one-picture-bar" style="margin-top:10px;">
+                <div class="one-picture-seg seg-delayed" style="width:${tDelayed.count > 0 ? Math.max(5, tDelayed.pct) : 0}%;" title="Already Delayed: ${tDelayed.count} (${tDelayed.pct}%)">
+                    ${tDelayed.pct >= 7 ? `${tDelayed.count} Delayed (${tDelayed.pct}%)` : (tDelayed.count > 0 ? tDelayed.count : "")}
+                </div>
+                <div class="one-picture-seg seg-high-risk" style="width:${tHigh.count > 0 ? Math.max(5, tHigh.pct) : 0}%;" title="High Risk: ${tHigh.count} (${tHigh.pct}%)">
+                    ${tHigh.pct >= 7 ? `${tHigh.count} High Risk (${tHigh.pct}%)` : (tHigh.count > 0 ? tHigh.count : "")}
+                </div>
+                <div class="one-picture-seg seg-low-risk" style="width:${tLow.count > 0 ? Math.max(5, tLow.pct) : 0}%;" title="Low Risk: ${tLow.count} (${tLow.pct}%)">
+                    ${tLow.pct >= 7 ? `${tLow.count} Low Risk (${tLow.pct}%)` : (tLow.count > 0 ? tLow.count : "")}
+                </div>
+                <div class="one-picture-seg seg-healthy" style="width:${tHealthy.count > 0 ? Math.max(5, tHealthy.pct) : 0}%;" title="Healthy: ${tHealthy.count} (${tHealthy.pct}%)">
+                    ${tHealthy.pct >= 7 ? `${tHealthy.count} Healthy (${tHealthy.pct}%)` : (tHealthy.count > 0 ? tHealthy.count : "")}
+                </div>
+            </div>
+        </section>
+
+        <!-- 4. 2-COLUMN CORE: WEIGHTED S-CURVE & KEY DATES | KEY FINDINGS & LIVE SIGNALS -->
+        <section class="ex-mid-grid">
+            <div class="card ex-scurve-card">
+                <div class="ex-section-head">
+                    <div>
+                        <div class="card-title">Weighted Project Progress S-Curve</div>
+                        <div class="card-subtitle">${esc(sc.calculation_basis || `Weighted across ${pkgs.length} packages`)}</div>
+                    </div>
+                    <div style="display:flex;gap:6px;align-items:center;">
+                        <span class="badge badge-info">Plan ${planPct.toFixed(1)}%</span>
+                        <span class="badge badge-success">Act ${actPct.toFixed(1)}%</span>
+                    </div>
+                </div>
+                <div class="ex-scurve-wrap">
+                    ${renderExecutiveSvgSCurve(sc)}
+                </div>
+                <div class="ex-scurve-legend">
+                    <span><i class="dot-plan"></i> Planned Cumulative (%)</span>
+                    <span><i class="dot-act"></i> Actual Cumulative (%)</span>
+                    <span><i class="dot-cut"></i> Cut-off (${esc(sc.current_week || "Current")} • ${esc(sc.cut_off_date || "—")})</span>
+                </div>
+                ${keyDatesHtml}
+            </div>
+
+            <div class="card ex-findings-card">
+                <div class="ex-section-head">
+                    <div>
+                        <div class="card-title">Executive Findings &amp; Live Package Signals</div>
+                        <div class="card-subtitle">Summary across Schedule, Manufacturing, and Document Control — click to verify details</div>
+                    </div>
+                </div>
+
+                <div class="ex-pillars">
+                    <div class="ex-pillar">
+                        <div class="ex-pillar-head">
+                            <strong>1. Schedule &amp; ROS Alignment</strong>
+                            <button type="button" class="ex-link-btn" onclick="drillDownTab('portfolio')">Verify Matrix →</button>
+                        </div>
+                        <p>${esc(exec.schedule_and_ros_finding || "—")}</p>
+                    </div>
+                    <div class="ex-pillar">
+                        <div class="ex-pillar-head">
+                            <strong>2. Critical Path &amp; Manufacturing</strong>
+                            <button type="button" class="ex-link-btn" onclick="drillDownTab('lookahead')">Look-Ahead →</button>
+                        </div>
+                        <p>${esc(exec.vendor_management_finding || "—")}</p>
+                    </div>
+                    <div class="ex-pillar">
+                        <div class="ex-pillar-head">
+                            <strong>3. Vendor &amp; Client Document Control</strong>
+                            <button type="button" class="ex-link-btn" onclick="drillDownTab('doccontrol')">Doc Hub →</button>
+                        </div>
+                        <p>${esc(exec.document_control_finding || "—")}</p>
+                    </div>
+                </div>
+
+                <div class="ex-live-section">
+                    <div class="ex-live-title">Active Live WPR / MOM Packages (${livePkgs.length}) — Click to Inspect</div>
+                    <div class="ex-live-chips">${liveSignalsHtml}</div>
+                </div>
+            </div>
+        </section>
+
+        <!-- 5. MANAGEMENT ATTENTION & ACTION LIST -->
+        <section class="card ex-priority-card">
+            <div class="ex-section-head">
+                <div>
+                    <div class="card-title">Management Attention &amp; Priority Action List (${totalMatching} item${totalMatching === 1 ? "" : "s"})</div>
+                    <div class="card-subtitle">Click any row or <strong>Review →</strong> to open full 9-Element package evidence, Gantt tasks, VDRL &amp; MOM minutes</div>
+                </div>
+                <div style="display:flex;gap:8px;align-items:center;">
+                    ${totalMatching > 10 ? `
+                        <button type="button" class="btn-action" onclick="toggleExecShowAllPriority()">
+                            ${APP_STATE.execShowAllPriority ? "Show Top 10 Only" : `Show All ${totalMatching} Items`}
+                        </button>
+                    ` : ""}
+                    <button type="button" class="btn-action" onclick="drillDownTab('portfolio')">Open Full Portfolio Table →</button>
+                </div>
+            </div>
+
+            <div class="table-scroll" style="margin-top:10px;">
+                <table class="data-table">
+                    <thead>
+                        <tr>
+                            <th style="width:18%;">Package</th>
+                            <th class="center" style="width:12%;">Status</th>
+                            <th style="width:14%;">ETA vs. ROS</th>
+                            <th style="width:24%;">Key Issue (Root Cause)</th>
+                            <th style="width:24%;">Recommended Action &amp; Owner</th>
+                            <th class="center" style="width:8%;">Detail</th>
+                        </tr>
+                    </thead>
+                    <tbody>${priorityRowsHtml}</tbody>
+                </table>
+            </div>
+        </section>
+    `;
+}
+
+/* ==========================================================================
+   CONSTRUCTION MONITORING VIEW (Master Schedule + Vendor Impact)
+   ========================================================================== */
+function setConstTab(tabName) {
+    APP_STATE.constTab = (tabName === "forecast14d" || tabName === "all" || tabName === "ti") ? tabName : "gantt";
+    renderConstructionMonitoringView();
+}
+
+function setConstSearch(val) {
+    APP_STATE.constSearch = String(val || "");
+    renderConstructionMonitoringView();
+}
+
+function toggleConstCritOnly() {
+    APP_STATE.constCritOnly = !APP_STATE.constCritOnly;
+    renderConstructionMonitoringView();
+}
+
+function _parseIsoDayMs(isoStr) {
+    if (!isoStr || typeof isoStr !== "string") return NaN;
+    const parts = isoStr.slice(0, 10).split("-").map(Number);
+    if (parts.length !== 3 || parts.some(isNaN)) return NaN;
+    return Date.UTC(parts[0], parts[1] - 1, parts[2]);
+}
+
+function renderConstGanttChart(cm, filteredActs) {
+    const startMs = _parseIsoDayMs(cm.gantt_window_start);
+    const endMs = _parseIsoDayMs(cm.gantt_window_end);
+    const todayMs = _parseIsoDayMs(cm.today_date);
+    const dayMs = 86400000;
+
+    if (isNaN(startMs) || isNaN(endMs) || endMs <= startMs) {
+        return `<div class="ex-empty">Gantt timeline window unavailable.</div>`;
+    }
+
+    const totalDays = Math.round((endMs - startMs) / dayMs) + 1;
+    const todayIdx = Math.round((todayMs - startMs) / dayMs);
+    const todayPct = ((todayIdx + 0.5) / totalDays) * 100;
+
+    const dayHeaders = [];
+    for (let i = 0; i < totalDays; i++) {
+        const dt = new Date(startMs + i * dayMs);
+        const dd = String(dt.getUTCDate()).padStart(2, "0");
+        const mm = String(dt.getUTCMonth() + 1).padStart(2, "0");
+        const isToday = i === todayIdx;
+        const isPast = i < todayIdx;
+        dayHeaders.push(`
+            <div class="cm-gantt-day ${isToday ? "is-today" : ""} ${isPast ? "is-past" : ""}" title="${dt.toISOString().slice(0, 10)}">
+                <span>${isToday ? "TODAY" : (i === 0 || dd === "01" ? `${mm}/${dd}` : dd)}</span>
+            </div>
+        `);
+    }
+
+    if (!filteredActs.length) {
+        return `<div class="ex-empty">No Master Schedule construction activities match the current filter inside the ${esc(cm.gantt_window_start)} to ${esc(cm.gantt_window_end)} window.</div>`;
+    }
+
+    const rowsHtml = filteredActs.map(a => {
+        const aStart = _parseIsoDayMs(a.start_date);
+        const aEnd = _parseIsoDayMs(a.finish_date);
+        const clampedStart = Math.max(startMs, isNaN(aStart) ? startMs : aStart);
+        const clampedEnd = Math.min(endMs, isNaN(aEnd) ? endMs : aEnd);
+
+        const leftIdx = Math.max(0, (clampedStart - startMs) / dayMs);
+        const spanDays = Math.max(1, ((clampedEnd - clampedStart) / dayMs) + 1);
+        const leftPct = (leftIdx / totalDays) * 100;
+        const widthPct = Math.min(100 - leftPct, (spanDays / totalDays) * 100);
+
+        const barClass = a.is_critical_path
+            ? "bar-critical"
+            : (a.status === "In Progress" ? "bar-active" : (a.status === "Completed / Past" ? "bar-past" : "bar-upcoming"));
+
+        return `
+            <div class="cm-gantt-row">
+                <div class="cm-gantt-label">
+                    <div class="cm-gantt-id-row">
+                        <span class="font-mono cm-act-id">${esc(a.activity_id)}</span>
+                        ${a.is_critical_path ? `<span class="badge badge-danger" style="font-size:10px;padding:1px 6px;">CRIT</span>` : ""}
+                        <span class="cm-act-dates font-mono">${esc(a.start_date)} → ${esc(a.finish_date)}</span>
+                    </div>
+                    <div class="cm-gantt-name" title="${esc(a.activity_name)}">${esc(a.activity_name)}</div>
+                </div>
+                <div class="cm-gantt-track">
+                    <div class="cm-gantt-today-line" style="left:${todayPct.toFixed(2)}%;"></div>
+                    <div class="cm-gantt-bar ${barClass}"
+                         style="left:${leftPct.toFixed(2)}%;width:${widthPct.toFixed(2)}%;"
+                         title="${esc(a.activity_id)}: ${esc(a.activity_name)} (${esc(a.start_date)} → ${esc(a.finish_date)}, ${a.duration_days || "—"}d)">
+                        <span class="cm-bar-text">${a.duration_days ? `${a.duration_days}d` : ""}</span>
+                    </div>
+                </div>
+            </div>
+        `;
+    }).join("");
+
+    return `
+        <div class="cm-gantt-legend">
+            <span><i class="cm-dot dot-critical"></i> Critical Path</span>
+            <span><i class="cm-dot dot-active"></i> In Progress (Active Now)</span>
+            <span><i class="cm-dot dot-upcoming"></i> Upcoming (14d Forecast)</span>
+            <span><i class="cm-dot dot-past"></i> Past / Completed (-7d Window)</span>
+            <span class="cm-today-pill">Vertical Marker = TODAY (${esc(cm.today_date)})</span>
+        </div>
+        <div class="cm-gantt-wrap">
+            <div class="cm-gantt-header">
+                <div class="cm-gantt-label-head">Master Schedule Activity (${filteredActs.length})</div>
+                <div class="cm-gantt-days-grid">${dayHeaders.join("")}</div>
+            </div>
+            <div class="cm-gantt-body">
+                ${rowsHtml}
+            </div>
+        </div>
+    `;
+}
+
+function renderConstructionMonitoringView() {
+    const root = document.getElementById("constViewRoot");
+    if (!root) return;
+
+    const snap = APP_STATE.snapshot;
+    if (!snap) {
+        root.innerHTML = `<div class="ex-loading">Loading construction monitoring…</div>`;
+        return;
+    }
+
+    const cm = snap.construction_monitoring || {};
+    const summary = cm.summary || {};
+    const concerns = cm.vendor_impact_concerns || [];
+    const ganttActs = cm.gantt_activities || [];
+    const forecast14d = cm.forecast_14d_activities || [];
+    const allActs = cm.all_activities || [];
+
+    const activeTab = APP_STATE.constTab || "gantt";
+    const searchQ = (APP_STATE.constSearch || "").trim().toLowerCase();
+    const critOnly = Boolean(APP_STATE.constCritOnly);
+
+    const filterFn = (list) => list.filter(a => {
+        if (critOnly && !a.is_critical_path) return false;
+        if (!searchQ) return true;
+        return (
+            String(a.activity_id || "").toLowerCase().includes(searchQ) ||
+            String(a.activity_name || "").toLowerCase().includes(searchQ) ||
+            String(a.category || "").toLowerCase().includes(searchQ)
+        );
+    });
+
+    const filteredGantt = filterFn(ganttActs);
+    const filtered14d = filterFn(forecast14d);
+    const filteredAll = filterFn(allActs);
+    const filteredTi = filterFn(cm.ti_activities || []);
+
+    const concernRowsHtml = concerns.length
+        ? concerns.map(c => {
+            const sevClass = c.severity === "CRITICAL" ? "badge-danger" : (c.severity === "HIGH" ? "badge-warning" : "badge-info");
+            const impactText = c.erection_impact_days !== null && c.erection_impact_days !== undefined
+                ? (c.erection_impact_days > 0 ? `+${c.erection_impact_days}d past Erection` : `${c.erection_impact_days}d buffer to Erection`)
+                : (c.ros_delay_days > 0 ? `+${c.ros_delay_days}d past ROS` : "Tight Margin");
+            return `
+                <tr class="ex-priority-row" onclick="drillDownPackage('${esc(c.package_code)}')">
+                    <td>
+                        <div class="ex-pkg-title">
+                            <strong>${esc(c.package_code)}</strong>
+                            ${c.is_critical_path ? `<span class="badge badge-danger" style="font-size:10px;">CRITICAL PATH</span>` : ""}
+                        </div>
+                        <div class="ex-pkg-sub">${esc(c.package_name)}</div>
+                    </td>
+                    <td class="center"><span class="badge ${sevClass}">${esc(c.severity)}</span></td>
+                    <td class="font-mono" style="font-size:12px;">
+                        <div>ETA: <strong>${fmtBlank(c.eta_date)}</strong></div>
+                        <div style="color:var(--text-muted);">Erect: ${fmtBlank(c.yard_erection_date || c.ros_date)}</div>
+                    </td>
+                    <td class="center">
+                        <span class="badge ${c.erection_impact_days > 0 || c.ros_delay_days > 0 ? "badge-danger" : "badge-warning"}">${esc(impactText)}</span>
+                    </td>
+                    <td style="font-size:12.5px;">
+                        <div style="font-weight:600;color:var(--text-primary);">${esc(c.impact_reason)}</div>
+                        ${c.yard_erection_activity ? `<div style="font-size:11px;color:var(--text-muted);margin-top:2px;">Target Activity: ${esc(c.yard_erection_activity)}</div>` : ""}
+                    </td>
+                    <td style="font-size:12.5px;color:var(--text-secondary);">${esc(c.mitigation)}</td>
+                    <td class="center">
+                        <button type="button" class="btn-action" style="padding:5px 10px;font-size:11.5px;" onclick="event.stopPropagation();drillDownPackage('${esc(c.package_code)}')">Review →</button>
+                    </td>
+                </tr>
+            `;
+        }).join("")
+        : `<tr><td colspan="7" class="ex-empty">No vendor-to-construction delay concerns flagged for ${esc(snap.project)}.</td></tr>`;
+
+    const renderActivityTable = (rows, emptyMsg) => {
+        if (!rows.length) {
+            return `<div class="ex-empty">${esc(emptyMsg)}</div>`;
+        }
+        const maxDisplay = activeTab === "all" && rows.length > 250 && !searchQ && !critOnly ? 250 : rows.length;
+        const sliced = rows.slice(0, maxDisplay);
+        return `
+            ${maxDisplay < rows.length ? `<div class="cm-trunc-note">Showing first ${maxDisplay} of ${rows.length} construction activities. Use search or Critical Path filter to narrow down.</div>` : ""}
+            <div class="table-scroll">
+                <table class="data-table">
+                    <thead>
+                        <tr>
+                            <th style="width:14%;">Activity ID</th>
+                            <th style="width:34%;">Construction / Fabrication Activity</th>
+                            <th style="width:14%;">Category</th>
+                            <th class="center" style="width:10%;">Start</th>
+                            <th class="center" style="width:10%;">Finish</th>
+                            <th class="center" style="width:7%;">Dur</th>
+                            <th class="center" style="width:6%;">Crit</th>
+                            <th class="center" style="width:10%;">Status</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        ${sliced.map(a => {
+                            const stClass = a.status === "In Progress" ? "badge-success" : (a.status === "Upcoming" ? "badge-info" : "badge-neutral");
+                            return `
+                                <tr>
+                                    <td class="font-mono" style="font-weight:700;font-size:12px;">${esc(a.activity_id)}</td>
+                                    <td style="font-weight:600;color:var(--text-primary);">${esc(a.activity_name)}</td>
+                                    <td><span class="badge badge-info">${esc(a.category)}</span></td>
+                                    <td class="center font-mono">${fmtBlank(a.start_date)}</td>
+                                    <td class="center font-mono" style="font-weight:700;">${fmtBlank(a.finish_date)}</td>
+                                    <td class="center font-mono">${a.duration_days ? `${a.duration_days}d` : "—"}</td>
+                                    <td class="center">${a.is_critical_path ? `<span class="badge badge-danger">YES</span>` : `<span class="badge badge-neutral">No</span>`}</td>
+                                    <td class="center"><span class="badge ${stClass}">${esc(a.status)}</span></td>
+                                </tr>
+                            `;
+                        }).join("")}
+                    </tbody>
+                </table>
+            </div>
+        `;
+    };
+
+    let activePanelHtml = "";
+    if (activeTab === "gantt") {
+        activePanelHtml = renderConstGanttChart(cm, filteredGantt);
+    } else if (activeTab === "forecast14d") {
+        activePanelHtml = renderActivityTable(filtered14d, "No 14-day construction forecast activities match the current filter.");
+    } else if (activeTab === "ti") {
+        activePanelHtml = `${renderTiTimelineWidget(cm.ti_timeline || [], false)}<div style="margin-top:14px;">${renderActivityTable(filteredTi, "No T&I activities found for this project.")}</div>`;
+    } else {
+        activePanelHtml = renderActivityTable(filteredAll, "No Master Schedule construction activities found.");
+    }
+
+    root.innerHTML = `
+        <!-- 1. CONSTRUCTION MONITORING HERO -->
+        <section class="ex-hero card">
+            <div class="ex-hero-main">
+                <div class="ex-hero-eyebrow">CONSTRUCTION MONITORING • ${esc(snap.project)} MASTER SCHEDULE</div>
+                <h2 class="ex-hero-title">Yard Construction &amp; Vendor Impact Monitoring — ${esc(snap.project)}</h2>
+                <div class="ex-hero-meta">
+                    <span>📐 Master Schedule: <strong>${esc(cm.master_schedule_file || "—")} (Rev. ${esc(cm.master_schedule_rev || "—")})</strong></span>
+                    <span>•</span>
+                    <span>📅 Today: <strong>${esc(cm.today_date || "—")}</strong></span>
+                    <span>•</span>
+                    <span>📊 Gantt Window (-7d to +14d): <strong>${esc(cm.gantt_window_start || "—")} → ${esc(cm.gantt_window_end || "—")}</strong></span>
+                </div>
+            </div>
+            <div class="ex-hero-actions">
+                <button type="button" class="btn-action" onclick="switchView('executive')">
+                    ← Executive Summary
+                </button>
+                <button type="button" class="btn-action btn-primary" onclick="drillDownTab('package')">
+                    🔍 Inspect Detail &amp; Review →
+                </button>
+            </div>
+        </section>
+
+        <!-- 2. 4 CONSTRUCTION SUMMARY KPI CARDS -->
+        <section class="ex-kpi-grid">
+            <div class="ex-kpi-card tone-rose" onclick="document.getElementById('cmConcernsSection')?.scrollIntoView({behavior:'smooth'})">
+                <div class="ex-kpi-label">1. VENDOR IMPACT CONCERNS</div>
+                <div class="ex-kpi-num">${summary.vendor_impact_count || 0} <span class="ex-kpi-subnum">(${summary.vendor_critical_count || 0} Critical)</span></div>
+                <div class="ex-kpi-foot">
+                    <span class="badge ${(summary.vendor_impact_count || 0) > 0 ? "badge-danger" : "badge-success"}">Vendor → Yard Erection Risk</span>
+                    <span class="ex-drill-hint">Review below ↓</span>
+                </div>
+            </div>
+            <div class="ex-kpi-card tone-amber" onclick="setConstTab('forecast14d')">
+                <div class="ex-kpi-label">2. 14-DAY FORECAST ACTIVITIES</div>
+                <div class="ex-kpi-num">${summary.forecast_14d_count || 0} <span class="ex-kpi-subnum">(${summary.forecast_14d_critical_count || 0} Crit)</span></div>
+                <div class="ex-kpi-foot">
+                    <span class="badge badge-warning">Next 14 Days Look-Ahead</span>
+                    <span class="ex-drill-hint">Open Forecast →</span>
+                </div>
+            </div>
+            <div class="ex-kpi-card tone-blue" onclick="setConstTab('gantt')">
+                <div class="ex-kpi-label">3. GANTT WINDOW (-7D TO +14D)</div>
+                <div class="ex-kpi-num">${summary.gantt_window_count || 0} <span class="ex-kpi-subnum">Activities</span></div>
+                <div class="ex-kpi-foot">
+                    <span class="badge badge-info">${esc(cm.gantt_window_start || "")} .. ${esc(cm.gantt_window_end || "")}</span>
+                    <span class="ex-drill-hint">View Gantt →</span>
+                </div>
+            </div>
+            <div class="ex-kpi-card tone-emerald" onclick="setConstTab('all')">
+                <div class="ex-kpi-label">4. ALL CONSTRUCTION ACTIVITIES</div>
+                <div class="ex-kpi-num">${summary.all_construction_count || 0} <span class="ex-kpi-subnum">Master Schedule</span></div>
+                <div class="ex-kpi-foot">
+                    <span class="badge badge-success">Fabrication &amp; Erection Scope</span>
+                    <span class="ex-drill-hint">Show All →</span>
+                </div>
+            </div>
+        </section>
+
+        <!-- 3. HIGHLIGHT #1: AREA OF CONCERN (VENDOR DELAY IMPACT TO CONSTRUCTION) -->
+        <section class="card ex-section" id="cmConcernsSection">
+            <div class="card-header">
+                <div>
+                    <div class="card-title">1. Area of Concern — Vendor Delay Impact to Construction (${concerns.length})</div>
+                    <div class="card-subtitle">Packages whose Vendor Delivery ETA slips past Master Schedule Yard Erection / ROS or carries critical-path buffer risk</div>
+                </div>
+            </div>
+            <div class="table-scroll" style="margin-top:8px;">
+                <table class="data-table">
+                    <thead>
+                        <tr>
+                            <th style="width:17%;">Package</th>
+                            <th class="center" style="width:9%;">Severity</th>
+                            <th style="width:14%;">ETA vs. Erection</th>
+                            <th class="center" style="width:12%;">Schedule Impact</th>
+                            <th style="width:24%;">Impact to Construction</th>
+                            <th style="width:18%;">Mitigation Action</th>
+                            <th class="center" style="width:6%;">Detail</th>
+                        </tr>
+                    </thead>
+                    <tbody>${concernRowsHtml}</tbody>
+                </table>
+            </div>
+        </section>
+
+        <!-- 4. HIGHLIGHT #2 & #3: SIMPLIFIED GANTT (-7d..+14d), 14-DAY FORECAST & ALL ACTIVITIES -->
+        <section class="card ex-section">
+            <div class="card-header" style="flex-wrap:wrap;gap:12px;">
+                <div>
+                    <div class="card-title">2. Master Schedule Construction Timeline &amp; Look-Ahead</div>
+                    <div class="card-subtitle">Switch between the simplified 22-day Gantt (-7d before Today to +14d look-ahead), 14-Day Forecast list, or All Master Schedule construction activities</div>
+                </div>
+                <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;">
+                    <div class="segmented-control">
+                        <button type="button" class="seg-btn ${activeTab === "gantt" ? "active" : ""}" onclick="setConstTab('gantt')">
+                            <span>📊 Gantt (-7d to +14d) (${filteredGantt.length})</span>
+                        </button>
+                        <button type="button" class="seg-btn ${activeTab === "forecast14d" ? "active" : ""}" onclick="setConstTab('forecast14d')">
+                            <span>🔭 14-Day Forecast (${filtered14d.length})</span>
+                        </button>
+                        <button type="button" class="seg-btn ${activeTab === "all" ? "active" : ""}" onclick="setConstTab('all')">
+                            <span>📋 Show All Activities (${filteredAll.length})</span>
+                        </button>
+                        ${(cm.ti_activities || []).length || (cm.ti_timeline || []).length ? `
+                            <button type="button" class="seg-btn ${activeTab === "ti" ? "active" : ""}" onclick="setConstTab('ti')">
+                                <span>🚢 T&amp;I Timeline (Att. 3) (${filteredTi.length})</span>
+                            </button>
+                        ` : ""}
+                    </div>
+                </div>
+            </div>
+
+            <div class="cm-toolbar">
+                <input type="text" class="select-control cm-search-input" placeholder="Filter by Activity ID or name…" value="${esc(APP_STATE.constSearch || "")}" oninput="setConstSearch(this.value)" />
+                <button type="button" class="btn-action ${critOnly ? "btn-primary" : ""}" onclick="toggleConstCritOnly()">
+                    ${critOnly ? "✓ Critical Path Only" : "Filter: Critical Path Only"}
+                </button>
+            </div>
+
+            ${activePanelHtml}
+        </section>
+    `;
 }

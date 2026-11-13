@@ -1,8 +1,8 @@
 # Engineering Handoff Report: Weekly Project Management & Vendor Package Monitoring Dashboard (ASK & Z1F)
 
 **Project Name:** Weekly Project Management & Vendor Package Monitoring Dashboard (Aung Sinkha `ASK` & Zawtika `Z1F`)  
-**Date:** November 07, 2026 (Updated from November 04, 2026 baseline)  
-**Status:** Live WPR/MOM Execution Release & Report Date Cut-Off Priority — All 15 Test Suites Passing & Verified  
+**Date:** November 13, 2026 (Updated from November 07, 2026 baseline)  
+**Status:** Live WPR/MOM Execution Release, Construction Monitoring & 4x2 Platform Grid Release — All 15 Test Suites Passing & Verified  
 **Active Dynamic Data Sources (5 Designated Weekly Drop Locations):**  
 1. **`WPR/` (`.pdf`, `.docx`) — Priority #1:**  
    - ASK Live Packages:
@@ -397,4 +397,61 @@ When you drop new weekly files (`WPR/`, `VDRL/`, `KOM/`, `MM-ASK-1A-GEN01-PJM-SC
    git push origin main
    ```
 3. Render will automatically detect the push and redeploy the latest dashboard.
+
+---
+
+## 5. November 13, 2026 Release — Construction Monitoring, Master Schedule SCD Lookahead, ASK Dual Platform (WPA-01/02) Deck Erection Breakdown, Z1F 4x2 Platform Grid with Topside Deck Breakdown & Attachment 3 T&I Timeline
+
+### 5.1. Construction Monitoring Module (`#viewConstruction`)
+- **Executive Access:** Added **`Const. Monitoring`** button on the Executive Summary navigation bar next to Core Packages / All Equipment toggles.
+- **Key Capabilities:**
+  1. **Vendor Delay Impact Area of Concern:** Correlates late vendor packages (where `ETA > Master Schedule ROS`) directly to downstream Yard Topside Erection and Hook-up activities.
+  2. **14-Day Forecast Construction Activities:** Extracts and displays active EPC construction activities from `MM-ASK-1A-GEN01-PJM-SCD-0001.pdf` (ASK) and `MM-ZTK-1F-GEN-PJM-SCD-0002.pdf` (Z1F).
+  3. **Simplified Gantt Chart Window (7 Days Before Today & 14 Days Lookahead):** Renders all construction activities within a 21-day window relative to project cut-off with duration badges, status pills, and Critical Path indicators.
+
+### 5.2. Master Schedule Activity Deduplication
+- Implemented `_clean_and_dedup_master_activities()` in `vendor_dashboard/ingestors.py`.
+- Resolves duplicate entries from multi-page Primavera PDF extractions by grouping on normalized `(activity_id, normalized_name, start_date, finish_date)` composite keys and retaining the single most descriptive activity row.
+
+### 5.3. Critical Path Clarification & Definition
+- Clarified the contractual basis of Critical Path in Primavera P6: an activity is critical when **`Total Float <= 0 days`** (`TF = 0.00d` or negative), meaning any delay immediately shifts the project completion or sail-away date.
+- Master schedule activities with positive float (`TF > 0`) are categorized as non-critical with available scheduling buffer.
+
+### 5.4. ASK Dual-Platform Deck-Level Erection Breakdown (`WPA-01` & `WPA-02`)
+- Updated ASK Executive Milestone cards to present both platforms independently:
+  - Replaced generic "Main Deck Lift" with granular deck-level erection milestones:
+    - `WPA-01 Lower Column Erection` (`2027-01-13..01-18`)
+    - `WPA-01 Sump Deck Erection` (`2027-01-19..02-19`)
+    - `WPA-01 Lower Deck Erection` (`2027-02-16..03-16`)
+    - `WPA-01 Mezzanine Deck Erection` (`2027-03-16..04-08`)
+    - `WPA-01 Upper Deck Erection` (`2027-04-10..05-08`)
+    - `WPA-01 Vent Boom - Erection` (`2027-05-10..06-01`)
+  - Replicated corresponding structure for `WPA-02` with critical equipment delivery dates at worksite (`2027-06-02`).
+  - Milestones are sorted chronologically by start date.
+
+### 5.5. Z1F Responsive 4x2 Platform Milestone Grid (`4 Jackets & Piles + 4 Topsides`)
+- Re-architected Z1F key dates into a clean **`4×2` responsive grid** displaying all 4 platforms:
+  - **Top Row (Jacket & Pile):** `ZWP-21 Jacket & Pile`, `ZWP-23 Jacket & Pile`, `ZWP-22 Jacket & Pile`, `ZWP-20 Jacket & Pile`.
+    - Milestones: `1) First Cut`, `2) MC & Testing`, `3) Ready for Loadout`, `4) Pile Fab. Complete`.
+  - **Bottom Row (Topside):** `ZWP-21 Topside`, `ZWP-23 Topside`, `ZWP-22 Topside`, `ZWP-20 Topside`.
+    - Milestones: `1) First Cut`, `2) Deck Erection per level` (`Lower Col.`, `Sump Deck`, `Lower Deck`, `Mezzanine Deck`, `Upper Deck`, `Vent Boom`), `3) Crit. Equip. at Site`, `4) MC & Pre-Comm`, `5) Ready for Loadout`.
+  - **Chronological Column Arrangement:** Ordered by Ready for Transportation date:
+    - Column 1: `ZWP-21` (Jacket `2027-08-03` / Topside `2027-09-17`)
+    - Column 2: `ZWP-23` (Jacket `2027-08-16` / Topside `2027-09-28`)
+    - Column 3: `ZWP-22` (Jacket `2027-09-30` / Topside `2027-11-12`)
+    - Column 4: `ZWP-20` (Jacket `2027-10-14` / Topside `2027-11-26`)
+
+### 5.6. Transportation & Installation (T&I) Timeline Widget
+- Integrated offshore Transportation & Installation campaign timeline extracted from **Attachment 3** of `MM-ZTK-1F-GEN-PJM-SCD-0002.pdf`:
+  - `T&I Campaign Mobilization`: `2027-08-01`
+  - `ZWP-21 T&I Window`: `2027-08-15..09-25`
+  - `ZWP-23 T&I Window`: `2027-08-28..10-10`
+  - `ZWP-22 T&I Window`: `2027-10-05..11-20`
+  - `ZWP-20 T&I Window`: `2027-10-20..12-05`
+  - `Offshore Demobilization & Final Handover`: `2027-12-15`
+- Rendered as an interactive visual campaign bar in both Executive Summary and Construction Monitoring views.
+
+### 5.7. Housekeeping: Superseded Backup Folder Cleanup
+- Moved `backup_original_ui_20261113/` into `superseded/` directory.
+- Added `superseded/` to `.gitignore` to prevent unnecessary upload bloat.
 

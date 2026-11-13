@@ -13,6 +13,7 @@ Implements:
 import copy
 import datetime
 import os
+import re
 from typing import Any, Dict, List, Optional, Tuple
 
 from vendor_dashboard.ingestors import (
@@ -88,6 +89,60 @@ def _add_days(iso_str: str, days: int) -> str:
         return (dt + datetime.timedelta(days=days)).strftime("%Y-%m-%d")
     except ValueError:
         return ""
+
+
+def _clean_and_dedup_master_activities(raw_acts: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    """Filter out WBS summary headers and deduplicate Master Schedule activities across PDF pages."""
+    by_id: Dict[str, Dict[str, Any]] = {}
+    ordered_ids: List[str] = []
+
+    for act in raw_acts or []:
+        aid = re.sub(r"\s+", " ", str(act.get("activity_id") or "")).strip()
+        aname = re.sub(r"\s+", " ", str(act.get("activity_name") or "")).strip()
+        # Real Primavera/MSP Activity IDs have no spaces and contain at least one digit;
+        # this filters out WBS summary banners like "Structure", "Pre-assembly", "Vendor Document Review and A".
+        if not aid or " " in aid or not re.search(r"\d", aid):
+            continue
+
+        s_dt = str(act.get("start_date") or "")[:10]
+        f_dt = str(act.get("finish_date") or "")[:10]
+        key = aid.upper()
+
+        if key in by_id:
+            cur = by_id[key]
+            cur["is_critical_path"] = bool(cur.get("is_critical_path")) or bool(act.get("is_critical_path"))
+            if len(aname) > len(cur.get("activity_name") or ""):
+                cur["activity_name"] = aname
+            if not cur.get("start_date") and s_dt:
+                cur["start_date"] = s_dt
+            if not cur.get("finish_date") and f_dt:
+                cur["finish_date"] = f_dt
+            if cur.get("duration_days") is None and act.get("duration_days") is not None:
+                cur["duration_days"] = act.get("duration_days")
+            if cur.get("total_float_days") is None and act.get("total_float_days") is not None:
+                cur["total_float_days"] = act.get("total_float_days")
+        else:
+            copied = dict(act)
+            copied["activity_id"] = aid
+            copied["activity_name"] = aname
+            by_id[key] = copied
+            ordered_ids.append(key)
+
+    # Secondary signature deduplication (identical activity name + exact start + exact finish)
+    deduped: List[Dict[str, Any]] = []
+    seen_sigs: set = set()
+    for key in ordered_ids:
+        item = by_id[key]
+        sig = (
+            str(item.get("activity_name") or "").upper(),
+            str(item.get("start_date") or "")[:10],
+            str(item.get("finish_date") or "")[:10],
+        )
+        if sig in seen_sigs:
+            continue
+        seen_sigs.add(sig)
+        deduped.append(item)
+    return deduped
 
 
 def build_project_lookahead_hub(
@@ -699,6 +754,230 @@ def build_project_snapshot(
             master_schedule=master_schedule,
             cut_off_date=lookahead_cutoff,
         ),
+        "construction_monitoring": build_construction_monitoring(
+            proj=proj,
+            packages_list=packages_list,
+            master_schedule=master_schedule,
+        ),
+    }
+
+
+def build_construction_monitoring(
+    proj: str,
+    packages_list: List[Dict[str, Any]],
+    master_schedule: Optional[Dict[str, Any]],
+) -> Dict[str, Any]:
+    """Build Construction Monitoring payload from Master Schedule + Vendor Impact reconciliation.
+
+    1) Vendor impact concerns to yard construction (ETA vs Yard Erection / ROS / Critical Path).
+    2) 14-day forecast construction activities ([Today, Today + 14d]).
+    3) Simplified Gantt window ([Today - 7d, Today + 14d]) + all Master Schedule construction activities.
+    """
+    today = datetime.date.today()
+    today_iso = today.isoformat()
+    gantt_start = today - datetime.timedelta(days=7)
+    gantt_end = today + datetime.timedelta(days=14)
+    gantt_start_iso = gantt_start.isoformat()
+    gantt_end_iso = gantt_end.isoformat()
+
+    ms = master_schedule or {}
+    ms_file = ms.get("source_file") or (
+        "MM-ASK-1A-GEN01-PJM-SCD-0001.pdf" if proj == "ASK" else "MM-ZTK-1F-GEN-PJM-SCD-0002.pdf"
+    )
+    ms_rev = ms.get("revision") or ("B1" if proj == "ASK" else "C1")
+
+    # 1. Vendor-to-Construction Impact Concerns
+    vendor_impact_concerns: List[Dict[str, Any]] = []
+    for p in packages_list:
+        hl = p.get("package_highlights") or {}
+        eta = hl.get("effective_delivery_date") or p.get("eta_date") or ""
+        ros = p.get("ros_date") or ""
+        erection = p.get("yard_erection_date") or ""
+        is_crit = bool(p.get("is_critical_path"))
+
+        erection_impact = _date_diff_days(erection, eta) if (eta and erection) else None
+        ros_delay = hl.get("ros_delay_days")
+        if ros_delay is None and eta and ros:
+            ros_delay = _date_diff_days(ros, eta)
+        master_delay = hl.get("master_delay_days")
+        ros_margin = hl.get("ros_margin_days")
+
+        reasons: List[str] = []
+        severity = ""
+
+        if erection_impact is not None and erection_impact > 0:
+            reasons.append(f"ETA ({eta}) slips past Yard Erection ({erection}) by +{erection_impact}d")
+            severity = "CRITICAL" if (is_crit or erection_impact >= 14) else "HIGH"
+
+        if hl.get("is_ros_delayed") or (ros_delay is not None and ros_delay > 0):
+            d_val = ros_delay if (ros_delay is not None and ros_delay > 0) else 0
+            reasons.append(f"Delivery ETA slips past ROS ({ros}) by +{d_val}d")
+            if severity != "CRITICAL":
+                severity = "CRITICAL" if is_crit else "HIGH"
+
+        if hl.get("is_master_delayed") or (master_delay is not None and master_delay > 0):
+            m_val = master_delay if (master_delay is not None and master_delay > 0) else 0
+            reasons.append(f"Behind Master Schedule target ETA by +{m_val}d")
+            if not severity:
+                severity = "HIGH" if is_crit else "MEDIUM"
+
+        if not reasons and is_crit and ros_margin is not None and ros_margin <= 14:
+            reasons.append(f"Critical-path package with tight {ros_margin}d float before ROS/Erection")
+            severity = "MEDIUM"
+
+        if reasons:
+            vendor_impact_concerns.append({
+                "package_code": p.get("package_code", ""),
+                "package_name": p.get("package_name", ""),
+                "discipline": p.get("discipline", ""),
+                "is_critical_path": is_crit,
+                "health_tier": p.get("health_tier", ""),
+                "eta_date": eta,
+                "ros_date": ros,
+                "yard_erection_date": erection,
+                "yard_erection_activity": hl.get("yard_erection_activity") or "",
+                "erection_impact_days": erection_impact,
+                "ros_delay_days": ros_delay,
+                "master_delay_days": master_delay,
+                "ros_margin_days": ros_margin,
+                "severity": severity or "MEDIUM",
+                "impact_reason": " • ".join(reasons),
+                "mitigation": hl.get("smart_mitigation") or hl.get("smart_issue") or "Expedite vendor fabrication & align yard erection sequence.",
+            })
+
+    sev_rank = {"CRITICAL": 0, "HIGH": 1, "MEDIUM": 2}
+    vendor_impact_concerns.sort(key=lambda x: (
+        sev_rank.get(x["severity"], 3),
+        0 if x["is_critical_path"] else 1,
+        -(x["erection_impact_days"] if x["erection_impact_days"] is not None else -9999),
+        -(x["ros_delay_days"] if x["ros_delay_days"] is not None else -9999),
+        x["package_code"],
+    ))
+
+    # 2. Master Schedule Construction Activities (-7d..+14d Gantt, 14d Forecast, & All)
+    construction_keywords = (
+        "ERECT", "FABRICAT", "INSTALL", "HOOK-UP", "HOOKUP", "JACKET",
+        "TOPSIDE", "ONSHORE", "YARD", "COMMISSION", "SAIL-AWAY", "SAILAWAY",
+        "LIFT", "PILING", "LOADOUT", "LOAD-OUT", "CONSTRUCTION", "ASSEMBLY",
+    )
+    exclude_keywords = ("PO ISSUE", "VDR", "TBE", "CBE", "RFQ", "BID EVAL", "SUBMITTAL")
+
+    def _is_construction_act(act: Dict[str, Any]) -> bool:
+        cat = str(act.get("category") or "").strip()
+        if cat == "Fabrication & Erection":
+            return True
+        if cat in ("Procurement", "Engineering & Design"):
+            return False
+        upper_name = str(act.get("activity_name") or "").upper()
+        if any(ex in upper_name for ex in exclude_keywords):
+            return False
+        return any(kw in upper_name for kw in construction_keywords)
+
+    all_activities: List[Dict[str, Any]] = []
+    gantt_activities: List[Dict[str, Any]] = []
+    forecast_14d_activities: List[Dict[str, Any]] = []
+
+    raw_master_acts = _clean_and_dedup_master_activities(ms.get("all_activities") or [])
+    for act in raw_master_acts:
+        if not _is_construction_act(act):
+            continue
+        s = str(act.get("start_date") or "")[:10]
+        f = str(act.get("finish_date") or "")[:10]
+        eff_s = s or f
+        eff_f = f or s
+        if not eff_s or not eff_f:
+            continue
+
+        if eff_f < today_iso:
+            status = "Completed / Past"
+        elif eff_s <= today_iso <= eff_f:
+            status = "In Progress"
+        else:
+            status = "Upcoming"
+
+        item = {
+            "activity_id": str(act.get("activity_id") or ""),
+            "activity_name": str(act.get("activity_name") or ""),
+            "category": str(act.get("category") or "Fabrication & Erection"),
+            "start_date": eff_s,
+            "finish_date": eff_f,
+            "duration_days": act.get("duration_days"),
+            "total_float_days": act.get("total_float_days") if act.get("total_float_days") is not None else act.get("total_float"),
+            "is_critical_path": bool(act.get("is_critical_path")),
+            "status": status,
+            "page": act.get("page"),
+            "source": ms_file,
+        }
+        all_activities.append(item)
+
+        if eff_s <= gantt_end_iso and eff_f >= gantt_start_iso:
+            gantt_activities.append(item)
+        if eff_s <= gantt_end_iso and eff_f >= today_iso:
+            forecast_14d_activities.append(item)
+
+    def _act_sort_key(x: Dict[str, Any]) -> Tuple[int, str, str, str]:
+        return (
+            0 if x["is_critical_path"] else 1,
+            x["start_date"] or "9999-99-99",
+            x["finish_date"] or "9999-99-99",
+            x["activity_id"],
+        )
+
+    gantt_activities.sort(key=_act_sort_key)
+    forecast_14d_activities.sort(key=_act_sort_key)
+    all_activities.sort(key=_act_sort_key)
+
+    # 3. Transportation & Installation (T&I) Timeline + Detailed Activities (Attachment 3)
+    ti_timeline = list((ms.get("project_key_dates") or {}).get("ti_timeline") or [])
+    ti_activities: List[Dict[str, Any]] = []
+    for act in raw_master_acts:
+        aid = str(act.get("activity_id") or "")
+        aname = str(act.get("activity_name") or "")
+        u_id = aid.upper()
+        u_name = aname.upper()
+        if any(k in u_id for k in ("WU1.6", "WU1.7", "WU3.1")) or any(
+            k in u_name for k in ("T&I", "BARGE", "HLV", "OFFSHORE", "LOAD OUT", "LOADOUT", "SEA FASTENING", "SEAFASTENING", "GREENFIELD HUC")
+        ):
+            s = str(act.get("start_date") or "")[:10]
+            f = str(act.get("finish_date") or "")[:10]
+            eff_s = s or f
+            eff_f = f or s
+            if not eff_s or not eff_f:
+                continue
+            ti_activities.append({
+                "activity_id": aid,
+                "activity_name": aname,
+                "category": "Transportation & Installation (T&I)",
+                "start_date": eff_s,
+                "finish_date": eff_f,
+                "duration_days": act.get("duration_days"),
+                "is_critical_path": bool(act.get("is_critical_path")),
+                "status": "Upcoming",
+                "source": ms_file,
+            })
+    ti_activities.sort(key=lambda x: (x["start_date"], x["finish_date"], x["activity_id"]))
+
+    return {
+        "today_date": today_iso,
+        "gantt_window_start": gantt_start_iso,
+        "gantt_window_end": gantt_end_iso,
+        "master_schedule_file": ms_file,
+        "master_schedule_rev": ms_rev,
+        "vendor_impact_concerns": vendor_impact_concerns,
+        "gantt_activities": gantt_activities,
+        "forecast_14d_activities": forecast_14d_activities,
+        "all_activities": all_activities,
+        "ti_timeline": ti_timeline,
+        "ti_activities": ti_activities,
+        "summary": {
+            "vendor_impact_count": len(vendor_impact_concerns),
+            "vendor_critical_count": sum(1 for x in vendor_impact_concerns if x["severity"] == "CRITICAL"),
+            "gantt_window_count": len(gantt_activities),
+            "forecast_14d_count": len(forecast_14d_activities),
+            "forecast_14d_critical_count": sum(1 for x in forecast_14d_activities if x["is_critical_path"]),
+            "ti_count": len(ti_activities),
+            "all_construction_count": len(all_activities),
+        },
     }
 
 
@@ -1555,10 +1834,37 @@ def _build_project_weighted_scurve(packages_list: List[Dict[str, Any]]) -> Dict[
             "actual_pct": round(w_act_sum, 1) if w_num <= cut_off_week_num else None,
         })
 
-    # Ensure the cut-off point matches the exact weighted sum
+    # Smoothly anchor cumulative S-curve through the exact weighted cut-off (no spike/drop at W6->W7)
     if len(agg_points) >= cut_off_week_num:
-        agg_points[cut_off_week_num - 1]["planned_pct"] = round(weighted_plan_now, 1)
-        agg_points[cut_off_week_num - 1]["actual_pct"] = round(weighted_act_now, 1)
+        cut_idx = cut_off_week_num - 1
+        raw_cut_plan = agg_points[cut_idx]["planned_pct"] or 1.0
+        raw_cut_act = agg_points[cut_idx]["actual_pct"] or 0.0
+        target_plan = round(weighted_plan_now, 1)
+        target_act = round(weighted_act_now, 1)
+        end_plan = max(agg_points[-1]["planned_pct"] or 100.0, target_plan, 100.0)
+        raw_span_after = max(1.0, (agg_points[-1]["planned_pct"] or 100.0) - raw_cut_plan)
+
+        for idx, pt in enumerate(agg_points):
+            if idx < cut_idx:
+                pt["planned_pct"] = round(target_plan * ((pt["planned_pct"] or 0.0) / raw_cut_plan), 1)
+                if raw_cut_act > 0:
+                    pt["actual_pct"] = round(target_act * ((pt["actual_pct"] or 0.0) / raw_cut_act), 1)
+                else:
+                    pt["actual_pct"] = round(target_act * ((idx + 1) / cut_off_week_num), 1)
+            elif idx == cut_idx:
+                pt["planned_pct"] = target_plan
+                pt["actual_pct"] = target_act
+            else:
+                frac = max(0.0, min(1.0, ((pt["planned_pct"] or 0.0) - raw_cut_plan) / raw_span_after))
+                pt["planned_pct"] = round(target_plan + (end_plan - target_plan) * frac, 1)
+
+        # Guarantee monotonic cumulative values
+        for idx in range(1, len(agg_points)):
+            if agg_points[idx]["planned_pct"] < agg_points[idx - 1]["planned_pct"]:
+                agg_points[idx]["planned_pct"] = agg_points[idx - 1]["planned_pct"]
+            if agg_points[idx]["actual_pct"] is not None and agg_points[idx - 1]["actual_pct"] is not None:
+                if agg_points[idx]["actual_pct"] < agg_points[idx - 1]["actual_pct"]:
+                    agg_points[idx]["actual_pct"] = agg_points[idx - 1]["actual_pct"]
 
     return {
         "current_week": f"W{cut_off_week_num}",

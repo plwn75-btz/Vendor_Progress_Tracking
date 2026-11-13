@@ -10,7 +10,7 @@
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet" />
-    <link rel="stylesheet" href="styles.css?v=20261107_1" />
+    <link rel="stylesheet" href="styles.css?v=20261113_7" />
 </head>
 <body>
     <!-- ====================================================================
@@ -30,6 +30,19 @@
         </div>
 
         <div class="controls-cluster">
+            <!-- PRIMARY VIEW SWITCHER: Executive Summary (Management) | Detail & Review -->
+            <div class="segmented-control view-switch" title="Switch between the Management Executive Summary and the Detail & Review workspace">
+                <button type="button" class="seg-btn active" id="btnViewExec" onclick="switchView('executive')">
+                    <span>📊 Executive Summary</span>
+                </button>
+                <button type="button" class="seg-btn" id="btnViewConst" onclick="switchView('construction')">
+                    <span>🏗 Const. Monitoring</span>
+                </button>
+                <button type="button" class="seg-btn" id="btnViewDetail" onclick="switchView('detail')">
+                    <span>🔍 Detail &amp; Review</span>
+                </button>
+            </div>
+
             <!-- Element 1: Separated & Switchable Project Selector (ASK | Z1F) -->
             <div class="segmented-control" title="Switch Project Workspace (Separated ASK & Z1F)">
                 <button type="button" class="seg-btn active" id="btnProjASK" onclick="switchProject('ASK')">
@@ -37,16 +50,6 @@
                 </button>
                 <button type="button" class="seg-btn" id="btnProjZ1F" onclick="switchProject('Z1F')">
                     <span>Project: Z1F</span>
-                </button>
-            </div>
-
-            <!-- WPR Priority Mode Selector (Dev Sample Template vs Live Execution) -->
-            <div class="segmented-control" title="Toggle between Live Execution Mode (WPR Priority #1 > PSR Priority #2) and Development Sample Mode (PLC WPR Template)">
-                <button type="button" class="seg-btn mode-btn" id="btnModeSample" onclick="switchMode('sample')">
-                    <span>Dev Mode (PLC WPR Sample)</span>
-                </button>
-                <button type="button" class="seg-btn mode-btn active" id="btnModeLive" onclick="switchMode('live')">
-                    <span>Execution Mode (Live WPR &gt; PSR)</span>
                 </button>
             </div>
 
@@ -58,7 +61,10 @@
             <button type="button" class="btn-action" onclick="refreshDashboard(true)" title="Re-scan all 5 dynamic document folders">
                 ↻ Refresh Data
             </button>
-            <button type="button" class="btn-action btn-primary" onclick="openUploadModal()">
+            <button type="button" class="btn-action exec-only" onclick="window.print()" title="Print or save the Executive Summary as PDF">
+                🖨 Print / PDF
+            </button>
+            <button type="button" class="btn-action btn-primary detail-only" onclick="openUploadModal()">
                 + Drop / Upload Weekly Files
             </button>
         </div>
@@ -68,24 +74,34 @@
          MAIN DASHBOARD SHELL
          ==================================================================== -->
     <main class="dashboard-shell">
-        <!-- 5 Dynamic Document Sources Ribbon -->
-        <section class="sources-ribbon">
-            <div class="source-pills" id="sourcesRibbonPills">
-                <span class="source-pill"><strong>1. WPR/</strong> (.pdf/.docx) Priority #1</span>
-                <span class="source-pill"><strong>2. PSR Plan</strong> (.xlsx) Priority #2 + Fixed ROS</span>
-                <span class="source-pill"><strong>3. VDRL/</strong> (.xlsx) Vendor Submission</span>
-                <span class="source-pill"><strong>4. Vendor Document Log Report</strong> (.xls) Contractual Client Review</span>
-                <span class="source-pill"><strong>5. KOM/</strong> (.pdf/.pptx) Manufacturer Detail</span>
-            </div>
-            <div class="priority-rule-banner">
-                <strong>Rules:</strong> Vendor Delivery Tracked vs. <strong>Master Schedule (SCD) &amp; Procurement Plan ROS Date</strong> • Governing ETA follows <strong>WPR Gantt Chart (if available)</strong> &gt; WPR Milestones &gt; PSR • Progress: Live WPR &amp; MOM (#1) &gt; SCD + VDRL + PSR (#2)
+        <!-- ================================================================
+             VIEW 1: EXECUTIVE SUMMARY (MANAGEMENT VIEW)
+             Rendered by renderExecutiveView() in app.js — same backend snapshot
+             ================================================================ -->
+        <section class="app-view active" id="viewExecutive">
+            <div id="execViewRoot">
+                <div class="ex-loading">Loading executive summary…</div>
             </div>
         </section>
 
-        <!-- Incorporated Uploaded Files Status & Confirmation Banner -->
-        <section class="incorporated-files-banner" id="incorporatedFilesBanner">
-            <!-- Populated dynamically by renderIncorporatedFilesBanner() in app.js -->
+        <!-- ================================================================
+             VIEW 2: CONSTRUCTION MONITORING (Master Schedule + Vendor Impact)
+             Rendered by renderConstructionMonitoringView() in app.js
+             ================================================================ -->
+        <section class="app-view" id="viewConstruction">
+            <div id="constViewRoot">
+                <div class="ex-loading">Loading construction monitoring…</div>
+            </div>
         </section>
+
+        <!-- ================================================================
+             VIEW 2: DETAIL & REVIEW WORKSPACE (original dashboard tabs)
+             ================================================================ -->
+        <section class="app-view" id="viewDetail">
+        <div class="detail-intro-bar">
+            <button type="button" class="btn-action" onclick="switchView('executive')">← Back to Executive Summary</button>
+            <span>Detail &amp; Review workspace — use these tabs to verify any figure or question raised from the Executive Summary.</span>
+        </div>
 
         <!-- Single-Row 6-Card Executive KPI Strip (Lesson_Learn.md §2.2) -->
         <section class="kpi-strip" id="executiveKpiStrip">
@@ -96,16 +112,16 @@
         <div class="view-tabs-bar">
             <div class="view-tabs">
                 <button type="button" class="view-tab-btn active" id="tabBtnPackage" onclick="switchTab('package')">
-                    <span>📋 9-Point Package Monitoring Workspace</span>
+                    <span>📋 Package Detail (9 Elements)</span>
                 </button>
                 <button type="button" class="view-tab-btn" id="tabBtnPortfolio" onclick="switchTab('portfolio')">
-                    <span>📊 Executive Portfolio Matrix (All Packages)</span>
+                    <span>📊 All Packages Matrix</span>
                 </button>
                 <button type="button" class="view-tab-btn" id="tabBtnDocControl" onclick="switchTab('doccontrol')">
-                    <span>📑 Contractual Client Review &amp; VDRL Hub</span>
+                    <span>📑 Documents &amp; Client Review</span>
                 </button>
                 <button type="button" class="view-tab-btn" id="tabBtnLookAhead" onclick="switchTab('lookahead')">
-                    <span>🔮 7 &amp; 14 Days Look-Ahead Hub</span>
+                    <span>🔮 7 / 14-Day Look-Ahead</span>
                 </button>
             </div>
 
@@ -847,6 +863,37 @@
                 </div>
             </div>
         </section>
+
+        <!-- Collapsible Data Sources & Incorporated Files Drawer (Hidden by Default at Bottom) -->
+        <section class="sources-audit-footer" id="sourcesAuditFooter">
+            <div class="sources-audit-bar">
+                <div>
+                    <strong>📂 Data Sources &amp; Incorporated Files Verification</strong>
+                    <span id="sourcesAuditSummaryText" style="font-size:12px;color:var(--text-muted);margin-left:8px;">Live Execution Mode active — click to inspect source files &amp; priority rules</span>
+                </div>
+                <button type="button" class="btn-action" id="btnToggleSourcesAudit" onclick="toggleSourcesAudit()">
+                    ▼ Show Data Sources &amp; Incorporated Files
+                </button>
+            </div>
+            <div id="sourcesAuditBody" style="display:none;margin-top:12px;">
+                <section class="sources-ribbon">
+                    <div class="source-pills" id="sourcesRibbonPills">
+                        <span class="source-pill"><strong>1. WPR/</strong> (.pdf/.docx) Priority #1</span>
+                        <span class="source-pill"><strong>2. PSR Plan</strong> (.xlsx) Priority #2 + Fixed ROS</span>
+                        <span class="source-pill"><strong>3. VDRL/</strong> (.xlsx) Vendor Submission</span>
+                        <span class="source-pill"><strong>4. Vendor Document Log Report</strong> (.xls) Contractual Client Review</span>
+                        <span class="source-pill"><strong>5. KOM/</strong> (.pdf/.pptx) Manufacturer Detail</span>
+                    </div>
+                    <div class="priority-rule-banner">
+                        <strong>Rules:</strong> Vendor Delivery Tracked vs. <strong>Master Schedule (SCD) &amp; Procurement Plan ROS Date</strong> • Governing ETA follows <strong>WPR Gantt Chart (if available)</strong> &gt; WPR Milestones &gt; PSR • Progress: Live WPR &amp; MOM (#1) &gt; SCD + VDRL + PSR (#2)
+                    </div>
+                </section>
+                <section class="incorporated-files-banner" id="incorporatedFilesBanner">
+                    <!-- Populated dynamically by renderIncorporatedFilesBanner() in app.js -->
+                </section>
+            </div>
+        </section>
+        </section><!-- /#viewDetail -->
     </main>
 
     <!-- ====================================================================
@@ -898,6 +945,6 @@
         </div>
     </div>
 
-    <script src="app.js?v=20261107_1"></script>
+    <script src="app.js?v=20261113_7"></script>
 </body>
 </html>

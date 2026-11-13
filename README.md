@@ -107,8 +107,10 @@ By default, the server runs on port **8080** (or port specified via `PORT` envir
 1. **Standalone Architecture (No Power BI Execution):**
    - The primary execution vehicle is this standalone Python web application.
    - Do NOT execute or run Power BI automation scripts in `PowerBI_Solution/`.
-2. **Manual Git Synchronization:**
-   - All Git commits and GitHub synchronization are executed manually by the repository owner. AI agents must not run automated `git commit` or `git push` commands.
+2. **Manual Git & Web Upload Synchronization:**
+   - All Git commits and GitHub synchronization are executed manually by the repository owner via the GitHub Web UI (drag-and-drop). AI agents must not run automated `git commit` or `git push` commands.
+   - Heavy raw PDFs (`WPR/`, `MOM/`, `KOM/`, `*.SCD-*.pdf`) remain local; only lightweight export Excel files (`Export Data File_ASK.xlsx` and `Export Data File_Z1F.xlsx`) and source code are uploaded to GitHub for Render.com deployment.
+   - Old UI backups are archived in `superseded/` and excluded from repository uploads.
 3. **Cache Busting on Deployment:**
    - Whenever updating CSS or JavaScript, bump the asset version query strings in `index.html` (e.g. `styles.css?v=YYYYMMDD_N` and `app.js?v=YYYYMMDD_N`) to prevent browser and CDN caching.
 
@@ -116,5 +118,7 @@ By default, the server runs on port **8080** (or port specified via `PORT` envir
 
 ## 7. Project Documentation
 
-- [Lesson_Learn.md](file:///c:/Users/pipes/OneDrive/Documents/Google_AntiGravity/Project/Procurement%20Tracking/Lesson_Learn.md): Technical pitfalls, root causes, formula derivations, and architectural solutions across all weekly cuts.
-- [Handoff_Report.md](file:///c:/Users/pipes/OneDrive/Documents/Google_AntiGravity/Project/Procurement%20Tracking/Handoff_Report.md): Detailed engineering handoff specification, deployment instructions, and operational verification checklists.
+- [MANUAL_UPLOAD_WRAPUP.md](file:///c:/Users/pipes/OneDrive/Documents/Google_AntiGravity/Project/Vendor%20Tracking/MANUAL_UPLOAD_WRAPUP.md): Pre-flight manual GitHub web upload matrix and Render deployment guide.
+- [Lesson_Learn.md](file:///c:/Users/pipes/OneDrive/Documents/Google_AntiGravity/Project/Vendor%20Tracking/Lesson_Learn.md): Technical pitfalls, root causes, formula derivations, and architectural solutions (§§1–39).
+- [Handoff_Report.md](file:///c:/Users/pipes/OneDrive/Documents/Google_AntiGravity/Project/Vendor%20Tracking/Handoff_Report.md): Detailed engineering handoff specification, deployment instructions, and operational verification checklists.
+- [SPEC.md](file:///c:/Users/pipes/OneDrive/Documents/Google_AntiGravity/Project/Vendor%20Tracking/SPEC.md): Formal technical specification for 9 dashboard elements, Master Schedule ROS governance, and priority rules.
