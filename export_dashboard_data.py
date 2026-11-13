@@ -22,7 +22,9 @@ from typing import Any, Dict, List
 
 from vendor_dashboard.extractors.excel_sync import (
     sync_lookahead_data_to_excel,
+    sync_master_construction_to_excel,
     sync_mom_data_to_excel,
+    sync_vdrl_summary_to_excel,
     sync_wpr_data_to_excel,
 )
 from vendor_dashboard.extractors.wpr_mom_extractor import extract_mom_pdf, extract_wpr_pdf
@@ -217,8 +219,9 @@ def sync_project_export_data(workspace_dir: str, project: str = "ASK") -> Dict[s
     else:
         print(" [MOM] MOM directory not found.")
 
-    # 4. Look-Ahead Hub Sync (7 & 14 Days)
+    # 4. Look-Ahead Hub, VDRL Summary & Master Construction Sync
     try:
+        from vendor_dashboard.ingestors import parse_all_vdrl_files
         from vendor_dashboard.reconciler import build_project_snapshot
         snap = build_project_snapshot(workspace_dir, project=proj, mode="live")
         la_hub = snap.get("lookahead_hub", {})
@@ -229,8 +232,25 @@ def sync_project_export_data(workspace_dir: str, project: str = "ASK") -> Dict[s
             stats_summary["lookahead_7d_count"] = la_stats["lookahead_7d"]
             stats_summary["lookahead_14d_count"] = la_stats["lookahead_14d"]
             print(f" [LookAhead] Synced {la_stats['lookahead_7d']} 7-day & {la_stats['lookahead_14d']} 14-day lookahead activities.")
+
+        vdrl_dir = os.path.join(workspace_dir, "VDRL")
+        vdrl_map = parse_all_vdrl_files(vdrl_dir, project_filter=proj)
+        if vdrl_map:
+            vdrl_cnt = sync_vdrl_summary_to_excel(export_path, vdrl_map)
+            stats_summary["vdrl_summary_count"] = vdrl_cnt
+            print(f" [VDRL] Synced {vdrl_cnt} package VDRL summaries.")
+
+        cm = snap.get("construction_monitoring", {})
+        mc_cnt = sync_master_construction_to_excel(
+            export_path,
+            cm.get("all_activities", []),
+            cm.get("ti_activities", []),
+        )
+        if mc_cnt:
+            stats_summary["master_construction_count"] = mc_cnt
+            print(f" [Construction] Synced {mc_cnt} Master Schedule construction & T&I activities.")
     except Exception as e:
-        print(f"⚠️ Error syncing Look-Ahead activities for {proj}: {e}")
+        print(f"⚠️ Error syncing Look-Ahead / Construction / VDRL activities for {proj}: {e}")
 
     if os.path.isfile(export_path):
         stats_summary["file_size_kb"] = round(os.path.getsize(export_path) / 1024, 1)

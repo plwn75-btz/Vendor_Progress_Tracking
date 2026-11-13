@@ -564,31 +564,80 @@ def parse_all_vdrl_files(vdrl_dir: str, project_filter: str = "ASK") -> Dict[str
         return _INGEST_CACHE[cache_key]
 
     packages: Dict[str, Dict[str, Any]] = {}
-    if not os.path.isdir(vdrl_dir):
-        return packages
+    if os.path.isdir(vdrl_dir):
+        files = [
+            fn for fn in sorted(os.listdir(vdrl_dir))
+            if fn.lower().endswith(".xlsx") and not fn.startswith("~$")
+        ]
+        # Sort files by freshness key ascending so newer files for the same package overwrite older ones
+        files.sort(key=lambda fn: _file_freshness_key(os.path.join(vdrl_dir, fn)))
 
-    files = [
-        fn for fn in sorted(os.listdir(vdrl_dir))
-        if fn.lower().endswith(".xlsx") and not fn.startswith("~$")
-    ]
-    # Sort files by freshness key ascending so newer files for the same package overwrite older ones
-    files.sort(key=lambda fn: _file_freshness_key(os.path.join(vdrl_dir, fn)))
+        for fname in files:
+            upper = fname.upper()
+            is_z1f = "ZTK" in upper or "Z1F" in upper
+            if project_filter == "ASK" and is_z1f:
+                continue
+            if project_filter == "Z1F" and not is_z1f:
+                continue
 
-    for fname in files:
-        upper = fname.upper()
-        is_z1f = "ZTK" in upper or "Z1F" in upper
-        if project_filter == "ASK" and is_z1f:
-            continue
-        if project_filter == "Z1F" and not is_z1f:
-            continue
+            fpath = os.path.join(vdrl_dir, fname)
+            try:
+                parsed_list = parse_vdrl_workbook(fpath)
+                for item in parsed_list:
+                    packages[item["package_code"]] = item
+            except Exception as exc:
+                print(f"[WARN] Failed parsing VDRL {fname}: {exc}")
 
-        fpath = os.path.join(vdrl_dir, fname)
-        try:
-            parsed_list = parse_vdrl_workbook(fpath)
-            for item in parsed_list:
-                packages[item["package_code"]] = item
-        except Exception as exc:
-            print(f"[WARN] Failed parsing VDRL {fname}: {exc}")
+    # Cloud fallback: read VDRL_Summary from Export Data File_<PROJECT>.xlsx when VDRL/ is absent (e.g., Render)
+    if not packages:
+        ws_dir = os.path.dirname(os.path.abspath(vdrl_dir))
+        export_path = os.path.join(ws_dir, get_export_data_filename(project_filter))
+        if os.path.isfile(export_path):
+            try:
+                import openpyxl
+                wb = openpyxl.load_workbook(export_path, read_only=True, data_only=True)
+                if "VDRL_Summary" in wb.sheetnames:
+                    ws = wb["VDRL_Summary"]
+                    rows_iter = ws.iter_rows(values_only=True)
+                    hdrs = [str(h or "").strip() for h in next(rows_iter, ())]
+                    for r in rows_iter:
+                        if not r or not r[0]:
+                            continue
+                        rec = dict(zip(hdrs, r))
+                        code = str(rec.get("Package_Code") or "").strip().upper()
+                        if not code:
+                            continue
+                        packages[code] = {
+                            "package_code": code,
+                            "package_name": str(rec.get("Package_Name") or ""),
+                            "discipline": str(rec.get("Discipline") or ""),
+                            "source_file": str(rec.get("Source_File") or os.path.basename(export_path)),
+                            "today_date": str(rec.get("Today_Date") or ""),
+                            "total_docs": int(rec.get("Total_Docs") or 0),
+                            "submitted": int(rec.get("Submitted") or 0),
+                            "not_yet": int(rec.get("Not_Yet") or 0),
+                            "overdue": int(rec.get("Overdue") or 0),
+                            "closed": int(rec.get("Closed") or 0),
+                            "pct_submitted": float(rec.get("Pct_Submitted") or 0.0),
+                            "pct_closed": float(rec.get("Pct_Closed") or 0.0),
+                            "key_docs_total": int(rec.get("Key_Docs_Total") or 0),
+                            "key_docs_submitted": int(rec.get("Key_Docs_Submitted") or 0),
+                            "key_docs_overdue": int(rec.get("Key_Docs_Overdue") or 0),
+                            "non_key_total": int(rec.get("Non_Key_Total") or 0),
+                            "non_key_submitted": int(rec.get("Non_Key_Submitted") or 0),
+                            "non_key_overdue": int(rec.get("Non_Key_Overdue") or 0),
+                            "production_impact_total": int(rec.get("Production_Impact_Total") or 0),
+                            "production_impact_overdue": int(rec.get("Production_Impact_Overdue") or 0),
+                            "fabrication_impact_total": int(rec.get("Fabrication_Impact_Total") or 0),
+                            "fabrication_impact_overdue": int(rec.get("Fabrication_Impact_Overdue") or 0),
+                            "appr_count": int(rec.get("APPR_Count") or 0),
+                            "awc_count": int(rec.get("AWC_Count") or 0),
+                            "category_breakdown": {},
+                            "documents": [],
+                        }
+                wb.close()
+            except Exception as exc:
+                print(f"[WARN] Non-fatal error reading VDRL_Summary fallback: {exc}")
 
     _INGEST_CACHE[cache_key] = packages
     return packages
@@ -3440,24 +3489,6 @@ def parse_master_schedule_pdf(workspace_dir: str, project: str = "ASK") -> Dict[
                 elif project.upper() == "Z1F" and ("Z1F" in u or "ZTK" in u):
                     candidates.append(os.path.join(root_dir, fn))
 
-    if not candidates:
-        return {
-            "available": False,
-            "source_file": "",
-            "document_no": "",
-            "revision": "",
-            "issue_date": "",
-            "catalog": ASK_MASTER_SCHEDULE_CATALOG if project.upper() == "ASK" else {},
-            "all_activities": [],
-        }
-
-    candidates.sort(key=_file_freshness_key, reverse=True)
-    fpath = candidates[0]
-    fname = os.path.basename(fpath)
-    cache_key = ("MASTER_SCHEDULE", project.upper(), fpath, _file_freshness_key(fpath))
-    if cache_key in _INGEST_CACHE:
-        return _INGEST_CACHE[cache_key]
-
     is_z1f = project.upper() == "Z1F"
     doc_no = "MM-ZTK-1F-GEN-PJM-SCD-0002" if is_z1f else "MM-ASK-1A-GEN01-PJM-SCD-0001"
     revision = "C1" if is_z1f else "B1"
@@ -3466,27 +3497,76 @@ def parse_master_schedule_pdf(workspace_dir: str, project: str = "ASK") -> Dict[
     catalog = {k: dict(v) for k, v in Z1F_MASTER_SCHEDULE_CATALOG.items()} if is_z1f else {k: dict(v) for k, v in ASK_MASTER_SCHEDULE_CATALOG.items()}
     all_activities: List[Dict[str, Any]] = []
 
-    try:
-        import pymupdf
+    if candidates:
+        candidates.sort(key=_file_freshness_key, reverse=True)
+        fpath = candidates[0]
+        fname = os.path.basename(fpath)
+        cache_key = ("MASTER_SCHEDULE", project.upper(), fpath, _file_freshness_key(fpath))
+        if cache_key in _INGEST_CACHE:
+            return _INGEST_CACHE[cache_key]
 
-        doc = pymupdf.open(fpath)
-        if len(doc) > 0:
-            p1_txt = doc[0].get_text("text")
-            m_rev = re.search(r"C\d+|B\d+|REV\.?\s*([A-Z0-9]+)", p1_txt.upper())
-            if m_rev:
-                revision = m_rev.group(1) if m_rev.lastindex else m_rev.group(0)
-            m_dt = re.search(r"(\d{1,2}-[A-Za-z]{3}-\d{2,4}|\d{2}-\d{2}-\d{4})", p1_txt)
-            if m_dt:
-                parsed_dt = fmt_date(m_dt.group(1))
-                if parsed_dt:
-                    review_date = parsed_dt
-            all_activities = _extract_master_schedule_activities(doc, project=project.upper())
-        doc.close()
-    except Exception as exc:
-        print(f"[WARN] Non-fatal error scanning Master Schedule PDF {fname}: {exc}")
+        try:
+            import pymupdf
+
+            doc = pymupdf.open(fpath)
+            if len(doc) > 0:
+                p1_txt = doc[0].get_text("text")
+                m_rev = re.search(r"C\d+|B\d+|REV\.?\s*([A-Z0-9]+)", p1_txt.upper())
+                if m_rev:
+                    revision = m_rev.group(1) if m_rev.lastindex else m_rev.group(0)
+                m_dt = re.search(r"(\d{1,2}-[A-Za-z]{3}-\d{2,4}|\d{2}-\d{2}-\d{4})", p1_txt)
+                if m_dt:
+                    parsed_dt = fmt_date(m_dt.group(1))
+                    if parsed_dt:
+                        review_date = parsed_dt
+                all_activities = _extract_master_schedule_activities(doc, project=project.upper())
+            doc.close()
+        except Exception as exc:
+            print(f"[WARN] Non-fatal error scanning Master Schedule PDF {fname}: {exc}")
+        is_available = True
+    else:
+        # Cloud fallback: read Master_Construction from Export Data File_<PROJECT>.xlsx when PDF is excluded
+        export_path = os.path.join(workspace_dir, get_export_data_filename(project.upper()))
+        fname = f"{doc_no}.pdf"
+        cache_key = ("MASTER_SCHEDULE_CLOUD", project.upper(), export_path, _file_freshness_key(export_path) if os.path.isfile(export_path) else (0.0, 0.0, 0))
+        if cache_key in _INGEST_CACHE:
+            return _INGEST_CACHE[cache_key]
+
+        if os.path.isfile(export_path):
+            try:
+                import openpyxl
+                wb = openpyxl.load_workbook(export_path, read_only=True, data_only=True)
+                if "Master_Construction" in wb.sheetnames:
+                    ws = wb["Master_Construction"]
+                    rows_iter = ws.iter_rows(values_only=True)
+                    hdrs = [str(h or "").strip() for h in next(rows_iter, ())]
+                    for r in rows_iter:
+                        if not r or not r[0]:
+                            continue
+                        rec = dict(zip(hdrs, r))
+                        cp_raw = str(rec.get("Critical_Path") or "NO").strip().upper()
+                        tf_val = rec.get("Total_Float_Days")
+                        dur_val = rec.get("Duration_Days")
+                        pg_val = rec.get("Page")
+                        all_activities.append({
+                            "activity_id": str(rec.get("Activity_ID") or "").strip(),
+                            "activity_name": str(rec.get("Activity_Name") or "").strip(),
+                            "category": str(rec.get("Category") or "Fabrication & Erection").strip(),
+                            "start_date": str(rec.get("Start_Date") or "")[:10],
+                            "finish_date": str(rec.get("Finish_Date") or "")[:10],
+                            "duration_days": int(float(dur_val)) if dur_val not in (None, "") else None,
+                            "total_float_days": float(tf_val) if tf_val not in (None, "") else None,
+                            "is_critical_path": cp_raw in ("YES", "TRUE", "1"),
+                            "page": int(pg_val) if pg_val not in (None, "") else None,
+                            "source": str(rec.get("Source") or fname),
+                        })
+                wb.close()
+            except Exception as exc:
+                print(f"[WARN] Non-fatal error reading Master_Construction fallback: {exc}")
+        is_available = bool(all_activities)
 
     result = {
-        "available": True,
+        "available": is_available,
         "source_file": fname,
         "document_no": doc_no,
         "revision": revision,

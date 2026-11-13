@@ -74,6 +74,19 @@ def _get_sheet_headers(sheet_name: str) -> List[str]:
             "Scope", "Package_or_ID", "Package_Name", "Activity_ID", "Activity_Name",
             "Start_Date", "Finish_Date", "Duration_Days", "Critical_Path", "Category", "Source", "Status"
         ],
+        "VDRL_Summary": [
+            "Package_Code", "Package_Name", "Discipline", "Source_File", "Today_Date",
+            "Total_Docs", "Submitted", "Not_Yet", "Overdue", "Closed", "Pct_Submitted", "Pct_Closed",
+            "Key_Docs_Total", "Key_Docs_Submitted", "Key_Docs_Overdue",
+            "Non_Key_Total", "Non_Key_Submitted", "Non_Key_Overdue",
+            "Production_Impact_Total", "Production_Impact_Overdue",
+            "Fabrication_Impact_Total", "Fabrication_Impact_Overdue",
+            "APPR_Count", "AWC_Count"
+        ],
+        "Master_Construction": [
+            "Activity_ID", "Activity_Name", "Category", "Start_Date", "Finish_Date",
+            "Duration_Days", "Total_Float_Days", "Critical_Path", "Page", "Source"
+        ],
     }
     return headers_map.get(sheet_name, [])
 
@@ -392,5 +405,130 @@ def sync_lookahead_data_to_excel(
 
     wb.save(excel_path)
     return stats
+
+
+def sync_vdrl_summary_to_excel(
+    excel_path: str,
+    vdrl_map: Dict[str, Dict[str, Any]],
+) -> int:
+    """Synchronize per-package VDRL summary metrics into Export Data File_*.xlsx ('VDRL_Summary' sheet)."""
+    if not vdrl_map:
+        return 0
+    if os.path.exists(excel_path):
+        wb = openpyxl.load_workbook(excel_path)
+    else:
+        wb = openpyxl.Workbook()
+        if "Sheet" in wb.sheetnames:
+            wb.remove(wb["Sheet"])
+
+    s_name = "VDRL_Summary"
+    if s_name in wb.sheetnames:
+        wb.remove(wb[s_name])
+    ws = wb.create_sheet(title=s_name)
+    _apply_header_style(ws, _get_sheet_headers(s_name))
+
+    count = 0
+    for code in sorted(vdrl_map.keys()):
+        item = vdrl_map[code]
+        row_vals = [
+            item.get("package_code", code),
+            item.get("package_name", ""),
+            item.get("discipline", ""),
+            item.get("source_file", ""),
+            item.get("today_date", ""),
+            int(item.get("total_docs", 0) or 0),
+            int(item.get("submitted", 0) or 0),
+            int(item.get("not_yet", 0) or 0),
+            int(item.get("overdue", 0) or 0),
+            int(item.get("closed", 0) or 0),
+            float(item.get("pct_submitted", 0.0) or 0.0),
+            float(item.get("pct_closed", 0.0) or 0.0),
+            int(item.get("key_docs_total", 0) or 0),
+            int(item.get("key_docs_submitted", 0) or 0),
+            int(item.get("key_docs_overdue", 0) or 0),
+            int(item.get("non_key_total", 0) or 0),
+            int(item.get("non_key_submitted", 0) or 0),
+            int(item.get("non_key_overdue", 0) or 0),
+            int(item.get("production_impact_total", 0) or 0),
+            int(item.get("production_impact_overdue", 0) or 0),
+            int(item.get("fabrication_impact_total", 0) or 0),
+            int(item.get("fabrication_impact_overdue", 0) or 0),
+            int(item.get("appr_count", 0) or 0),
+            int(item.get("awc_count", 0) or 0),
+        ]
+        ws.append(row_vals)
+        curr_row = ws.max_row
+        for col_idx in range(1, len(row_vals) + 1):
+            c = ws.cell(row=curr_row, column=col_idx)
+            c.font = DATA_FONT
+            c.border = BORDER_THIN
+            c.alignment = ALIGN_LEFT if col_idx in (2, 4) else ALIGN_CENTER
+        count += 1
+
+    wb.save(excel_path)
+    return count
+
+
+def sync_master_construction_to_excel(
+    excel_path: str,
+    construction_acts: List[Dict[str, Any]],
+    ti_acts: Optional[List[Dict[str, Any]]] = None,
+) -> int:
+    """Synchronize deduplicated Master Schedule construction & T&I activities into 'Master_Construction' sheet."""
+    merged: Dict[tuple, Dict[str, Any]] = {}
+    for act in list(construction_acts or []) + list(ti_acts or []):
+        aid = str(act.get("activity_id") or "").strip()
+        s = str(act.get("start_date") or "")[:10]
+        f = str(act.get("finish_date") or "")[:10]
+        if not aid or not (s or f):
+            continue
+        k = (aid, s, f)
+        if k not in merged:
+            merged[k] = act
+
+    if not merged:
+        return 0
+
+    if os.path.exists(excel_path):
+        wb = openpyxl.load_workbook(excel_path)
+    else:
+        wb = openpyxl.Workbook()
+        if "Sheet" in wb.sheetnames:
+            wb.remove(wb["Sheet"])
+
+    s_name = "Master_Construction"
+    if s_name in wb.sheetnames:
+        wb.remove(wb[s_name])
+    ws = wb.create_sheet(title=s_name)
+    _apply_header_style(ws, _get_sheet_headers(s_name))
+
+    rows = sorted(
+        merged.values(),
+        key=lambda x: (str(x.get("start_date") or ""), str(x.get("finish_date") or ""), str(x.get("activity_id") or "")),
+    )
+    for act in rows:
+        row_vals = [
+            act.get("activity_id", ""),
+            act.get("activity_name", ""),
+            act.get("category", "Fabrication & Erection"),
+            act.get("start_date", ""),
+            act.get("finish_date", ""),
+            act.get("duration_days"),
+            act.get("total_float_days"),
+            "YES" if act.get("is_critical_path") else "NO",
+            act.get("page"),
+            act.get("source", ""),
+        ]
+        ws.append(row_vals)
+        curr_row = ws.max_row
+        for col_idx in range(1, len(row_vals) + 1):
+            c = ws.cell(row=curr_row, column=col_idx)
+            c.font = DATA_FONT
+            c.border = BORDER_THIN
+            c.alignment = ALIGN_LEFT if col_idx in (2, 3, 10) else ALIGN_CENTER
+
+    wb.save(excel_path)
+    return len(rows)
+
 
 
