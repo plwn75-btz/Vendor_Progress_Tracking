@@ -255,6 +255,105 @@ def sync_wpr_data_to_excel(excel_path: str, wpr_records: List[Dict[str, Any]]) -
                 existing_sub_rows[key] = ws.max_row
             stats["sub_orders"] += 1
 
+    # 5. Sheet: WPR_Milestones
+    s_name = "WPR_Milestones"
+    ms_headers = [
+        "Package", "Report_No", "Milestone_No", "Key", "Description",
+        "Planned_Date", "Actual_Date", "Forecast_Date", "Remark", "Source",
+    ]
+    if s_name not in wb.sheetnames:
+        ws = wb.create_sheet(title=s_name)
+        _apply_header_style(ws, ms_headers)
+    else:
+        ws = wb[s_name]
+
+    headers = [cell.value for cell in ws[1]]
+    key_col_pkg = headers.index("Package") + 1 if "Package" in headers else 1
+    key_col_rpt = headers.index("Report_No") + 1 if "Report_No" in headers else 2
+    key_col_no = headers.index("Milestone_No") + 1 if "Milestone_No" in headers else 3
+
+    existing_ms_rows = {}
+    for r in range(2, ws.max_row + 1):
+        p_val = ws.cell(row=r, column=key_col_pkg).value
+        r_val = ws.cell(row=r, column=key_col_rpt).value
+        n_val = ws.cell(row=r, column=key_col_no).value
+        if p_val and r_val and n_val is not None:
+            existing_ms_rows[(str(p_val).strip(), str(r_val).strip(), str(n_val).strip())] = r
+
+    for wpr in wpr_records:
+        s = wpr["summary"]
+        pkg = str(s.get("package", "")).strip()
+        rpt = str(s.get("report_no", "")).strip()
+        for ms in wpr.get("milestones", []):
+            m_no = ms.get("no", "")
+            key = (pkg, rpt, str(m_no).strip())
+            row_vals = [
+                pkg, rpt, m_no, ms.get("key", ""), ms.get("description", ""),
+                ms.get("planned_date", ""), ms.get("actual_date", ""),
+                ms.get("forecast_date", ""), ms.get("remark", ""), ms.get("source", "WPR"),
+            ]
+            if key in existing_ms_rows:
+                target_row = existing_ms_rows[key]
+                for c_idx, val in enumerate(row_vals, 1):
+                    ws.cell(row=target_row, column=c_idx, value=val)
+            else:
+                ws.append(row_vals)
+                existing_ms_rows[key] = ws.max_row
+            stats["milestones"] = stats.get("milestones", 0) + 1
+
+    # 6. Sheet: WPR_Progress
+    s_name = "WPR_Progress"
+    mp_headers = [
+        "Package", "Report_No", "Item_ID", "Description", "Target_Week",
+        "Weight_Pct", "Planned_Pct", "Actual_Pct", "Weighted_Planned_Pct",
+        "Weighted_Actual_Pct", "Is_Sub",
+    ]
+    if s_name not in wb.sheetnames:
+        ws = wb.create_sheet(title=s_name)
+        _apply_header_style(ws, mp_headers)
+    else:
+        ws = wb[s_name]
+
+    headers = [cell.value for cell in ws[1]]
+    key_col_pkg = headers.index("Package") + 1 if "Package" in headers else 1
+    key_col_rpt = headers.index("Report_No") + 1 if "Report_No" in headers else 2
+    key_col_id = headers.index("Item_ID") + 1 if "Item_ID" in headers else 3
+
+    existing_mp_rows = {}
+    for r in range(2, ws.max_row + 1):
+        p_val = ws.cell(row=r, column=key_col_pkg).value
+        r_val = ws.cell(row=r, column=key_col_rpt).value
+        i_val = ws.cell(row=r, column=key_col_id).value
+        if p_val and r_val and i_val is not None:
+            existing_mp_rows[(str(p_val).strip(), str(r_val).strip(), str(i_val).strip())] = r
+
+    for wpr in wpr_records:
+        s = wpr["summary"]
+        pkg = str(s.get("package", "")).strip()
+        rpt = str(s.get("report_no", "")).strip()
+        for mp in wpr.get("milestone_progress", []):
+            item_id = str(mp.get("id", "")).strip()
+            if not item_id:
+                continue
+            key = (pkg, rpt, item_id)
+            row_vals = [
+                pkg, rpt, item_id, mp.get("description", ""), mp.get("target_week", ""),
+                float(mp.get("weight_pct", 0.0) or 0.0),
+                float(mp.get("planned_pct", 0.0) or 0.0),
+                float(mp.get("actual_pct", 0.0) or 0.0),
+                float(mp.get("weighted_planned_pct", 0.0) or 0.0),
+                float(mp.get("weighted_actual_pct", 0.0) or 0.0),
+                bool(mp.get("is_sub", False)),
+            ]
+            if key in existing_mp_rows:
+                target_row = existing_mp_rows[key]
+                for c_idx, val in enumerate(row_vals, 1):
+                    ws.cell(row=target_row, column=c_idx, value=val)
+            else:
+                ws.append(row_vals)
+                existing_mp_rows[key] = ws.max_row
+            stats["progress"] = stats.get("progress", 0) + 1
+
     wb.save(excel_path)
     return stats
 

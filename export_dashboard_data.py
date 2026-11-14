@@ -92,11 +92,14 @@ def sync_project_export_data(workspace_dir: str, project: str = "ASK") -> Dict[s
     else:
         print(" [KOM] KOM directory not found.")
 
-    # 2. WPR Sync
+    # 2. WPR Sync (.pdf and .docx)
     wpr_dir = os.path.join(workspace_dir, "WPR")
     if os.path.exists(wpr_dir):
-        all_wpr_files = sorted(glob.glob(os.path.join(wpr_dir, "*.pdf")), key=_file_freshness_key)
-        from vendor_dashboard.ingestors import fmt_date
+        all_wpr_files = sorted(
+            glob.glob(os.path.join(wpr_dir, "*.pdf")) + glob.glob(os.path.join(wpr_dir, "*.docx")),
+            key=_file_freshness_key,
+        )
+        from vendor_dashboard.ingestors import fmt_date, parse_wpr_file
         candidates_by_pkg: Dict[str, List[Dict[str, Any]]] = {}
         for wf in all_wpr_files:
             upper = os.path.basename(wf).upper()
@@ -108,24 +111,33 @@ def sync_project_export_data(workspace_dir: str, project: str = "ASK") -> Dict[s
             m_pkg = re.search(r"MM-(?:ASK|ZTK)-[A-Z0-9]+-[A-Z0-9]+-([A-Z0-9_]+)-", upper)
             p_key = m_pkg.group(1).split("_")[0] if m_pkg else os.path.basename(wf)
 
-            try:
-                import pymupdf
-                doc = pymupdf.open(wf)
-                hdr_text = "\n".join([doc[i].get_text("text") for i in range(min(4, len(doc)))])
-                doc.close()
-            except Exception:
-                hdr_text = os.path.basename(wf)
+            if wf.lower().endswith(".docx"):
+                try:
+                    parsed_docx = parse_wpr_file(wf)
+                    rep_date = str(parsed_docx.get("cut_off_date") or parsed_docx.get("report_date") or "")[:10]
+                    rev = str(parsed_docx.get("revision") or "")
+                    rep_no = str(parsed_docx.get("report_no") or "")
+                except Exception:
+                    rep_date, rev, rep_no = "", "", ""
+            else:
+                try:
+                    import pymupdf
+                    doc = pymupdf.open(wf)
+                    hdr_text = "\n".join([doc[i].get_text("text") for i in range(min(4, len(doc)))])
+                    doc.close()
+                except Exception:
+                    hdr_text = os.path.basename(wf)
 
-            date_m = (
-                re.search(r"REPORT\s*DATE\s*:\s*([0-9A-Za-z\-]+)", hdr_text, re.I)
-                or re.search(r"CUT\s*OFF\s*(?:PERIOD|DATE)\s*:\s*(?:[0-9A-Za-z\-]+\s*(?:to|-)\s*)?([0-9A-Za-z\-]+)", hdr_text, re.I)
-                or re.search(r"Date\.?\s*:\s*([0-9A-Za-z\-]+)", hdr_text, re.I)
-            )
-            rep_date = fmt_date(date_m.group(1)) if date_m else ""
-            rev_m = re.search(r"Rev(?:ision)?\.?\s*:\s*([0-9A-Z]+)", hdr_text, re.I)
-            rev = rev_m.group(1) if rev_m else ""
-            rep_m = re.search(r"REPORT\s*NO\.?\s*:\s*([0-9A-Za-z\-]+)", hdr_text, re.I)
-            rep_no = rep_m.group(1) if rep_m else ""
+                date_m = (
+                    re.search(r"REPORT\s*DATE\s*:\s*([0-9A-Za-z\-]+)", hdr_text, re.I)
+                    or re.search(r"CUT\s*OFF\s*(?:PERIOD|DATE)\s*:\s*(?:[0-9A-Za-z\-]+\s*(?:to|-)\s*)?([0-9A-Za-z\-]+)", hdr_text, re.I)
+                    or re.search(r"Date\.?\s*:\s*([0-9A-Za-z\-]+)", hdr_text, re.I)
+                )
+                rep_date = fmt_date(date_m.group(1)) if date_m else ""
+                rev_m = re.search(r"Rev(?:ision)?\.?\s*:\s*([0-9A-Z]+)", hdr_text, re.I)
+                rev = rev_m.group(1) if rev_m else ""
+                rep_m = re.search(r"REPORT\s*NO\.?\s*:\s*([0-9A-Za-z\-]+)", hdr_text, re.I)
+                rep_no = rep_m.group(1) if rep_m else ""
 
             candidates_by_pkg.setdefault(p_key, []).append({
                 "wf": wf,
@@ -149,11 +161,70 @@ def sync_project_export_data(workspace_dir: str, project: str = "ASK") -> Dict[s
             for cand in reversed(c_list):
                 wf = cand["wf"]
                 try:
-                    rec = extract_wpr_pdf(wf)
+                    if wf.lower().endswith(".docx"):
+                        pw = parse_wpr_file(wf)
+                        pkg_code = pw.get("package_code") or pkg
+                        rep_no = pw.get("report_no") or "WPR-001"
+                        cut_dt = pw.get("cut_off_date") or pw.get("report_date") or ""
+                        sc_obj = pw.get("scurve") or {}
+                        sc_pts = sc_obj.get("points", []) if isinstance(sc_obj, dict) else list(sc_obj)
+                        plan_p = float(pw.get("overall_planned_pct") or (sc_obj.get("planned_to_date_pct") if isinstance(sc_obj, dict) else 0.0) or 0.0)
+                        act_p = float(pw.get("overall_actual_pct") or (sc_obj.get("actual_to_date_pct") if isinstance(sc_obj, dict) else 0.0) or 0.0)
+                        scurve_rows = []
+                        for pt in sc_pts:
+                            if not isinstance(pt, dict):
+                                continue
+                            scurve_rows.append({
+                                "package": pkg_code,
+                                "report_no": rep_no,
+                                "cutoff_date": cut_dt,
+                                "week_no": int(pt.get("week_num") or (re.findall(r"\d+", str(pt.get("week") or pt.get("week_no") or "0")) or [0])[0]),
+                                "week_date": pt.get("date") or pt.get("week_date") or "",
+                                "plan_cum_pct": float(pt.get("planned_pct") or pt.get("planned_cum") or pt.get("plan_cum_pct") or 0.0),
+                                "actual_cum_pct": float(pt.get("actual_pct") or pt.get("actual_cum") or pt.get("actual_cum_pct") or 0.0) if pt.get("actual_pct") is not None else None,
+                                "plan_inc_pct": float(pt.get("planned_inc") or pt.get("plan_inc_pct") or 0.0),
+                                "actual_inc_pct": float(pt.get("actual_inc") or pt.get("actual_inc_pct") or 0.0),
+                            })
+                        rec = {
+                            "summary": {
+                                "package": pkg_code,
+                                "report_no": rep_no,
+                                "cutoff_date": cut_dt,
+                                "po_number": pw.get("po_number") or "",
+                                "vendor_name": pw.get("wpr_vendor_name") or "",
+                                "target_delivery": "",
+                                "overall_plan_pct": plan_p,
+                                "overall_actual_pct": act_p,
+                                "inc_plan_pct": 0.0,
+                                "inc_actual_pct": 0.0,
+                                "deviation_pct": round(act_p - plan_p, 2),
+                                "status_tone": "On Track" if act_p >= plan_p else "Behind",
+                                "executive_highlights": "; ".join(pw.get("this_period_activities", [])[:3]),
+                                "areas_of_concern": "; ".join(pw.get("outstanding_issues", [])[:3]),
+                                "critical_path_notes": "",
+                            },
+                            "scurve": scurve_rows,
+                            "gantt_tasks": pw.get("gantt_tasks", []),
+                            "sub_orders": [],
+                            "milestones": pw.get("milestones", []),
+                            "milestone_progress": pw.get("milestone_progress", []),
+                        }
+                    else:
+                        rec = extract_wpr_pdf(wf)
+                        if not rec.get("milestones") or not rec.get("milestone_progress"):
+                            try:
+                                pw_pdf = parse_wpr_file(wf)
+                                if not rec.get("milestones"):
+                                    rec["milestones"] = pw_pdf.get("milestones", [])
+                                if not rec.get("milestone_progress"):
+                                    rec["milestone_progress"] = pw_pdf.get("milestone_progress", [])
+                            except Exception:
+                                pass
                     summ = rec.get("summary", {})
                     if (
                         rec.get("milestones")
                         or rec.get("gantt_tasks")
+                        or rec.get("scurve")
                         or float(summ.get("overall_plan_pct") or 0.0) > 0.0
                         or float(summ.get("overall_actual_pct") or 0.0) > 0.0
                     ):

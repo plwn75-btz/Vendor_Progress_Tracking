@@ -1592,12 +1592,13 @@ def read_wpr_export_file(export_path: str) -> Dict[str, Dict[str, Any]]:
                     tgt_val = str(r[tgt_i] or "").strip()
                     if plan_val <= 0.0 and act_val <= 0.0 and not tgt_val:
                         continue
+                    is_z1f_export = "Z1F" in os.path.basename(export_path).upper()
                     results[p] = {
                         "package_code": p,
                         "discipline": "Mechanical" if p in ("CIP", "ABV", "BDV", "PIG") else "Instrument",
                         "source_file": os.path.basename(export_path),
                         "file_format": "xlsx",
-                        "document_no": f"MM-ASK-1A-GEN01-{p}-WPR",
+                        "document_no": f"MM-ZTK-1F-GEN-{p}-WPR" if is_z1f_export else f"MM-ASK-1A-GEN01-{p}-WPR",
                         "revision": "00",
                         "report_no": str(r[rpt_i] or ""),
                         "report_date": str(r[cut_i] or ""),
@@ -1730,6 +1731,72 @@ def read_wpr_export_file(export_path: str) -> Dict[str, Dict[str, Any]]:
                             "actual_cum_pct": r[ac_i],
                             "plan_inc_pct": r[pi_i],
                             "actual_inc_pct": r[ai_i],
+                        })
+
+        if "WPR_Milestones" in wb.sheetnames:
+            ws = wb["WPR_Milestones"]
+            rows = list(ws.iter_rows(values_only=True))
+            if rows and len(rows) > 1:
+                hdr = [str(c or "").strip() for c in rows[0]]
+                p_i = hdr.index("Package")
+                rpt_i = hdr.index("Report_No")
+                no_i = hdr.index("Milestone_No")
+                key_i = hdr.index("Key")
+                desc_i = hdr.index("Description")
+                pl_i = hdr.index("Planned_Date")
+                ac_i = hdr.index("Actual_Date")
+                fc_i = hdr.index("Forecast_Date") if "Forecast_Date" in hdr else -1
+                rem_i = hdr.index("Remark") if "Remark" in hdr else -1
+                src_i = hdr.index("Source") if "Source" in hdr else -1
+                ms_by_pkg: Dict[str, List[Dict[str, Any]]] = {}
+                for r in rows[1:]:
+                    p = str(r[p_i] or "").strip()
+                    if p in results and str(r[rpt_i] or "") == results[p]["report_no"]:
+                        ms_item = {
+                            "no": r[no_i],
+                            "key": str(r[key_i] or "").strip(),
+                            "description": str(r[desc_i] or "").strip(),
+                            "planned_date": str(r[pl_i] or "").strip(),
+                            "actual_date": str(r[ac_i] or "").strip(),
+                            "remark": str(r[rem_i] or "").strip() if rem_i >= 0 else "",
+                            "source": str(r[src_i] or "WPR").strip() if src_i >= 0 else "WPR",
+                        }
+                        if fc_i >= 0 and str(r[fc_i] or "").strip():
+                            ms_item["forecast_date"] = str(r[fc_i] or "").strip()
+                        ms_by_pkg.setdefault(p, []).append(ms_item)
+                for p, ms_list in ms_by_pkg.items():
+                    if ms_list:
+                        results[p]["milestones"] = ms_list
+
+        if "WPR_Progress" in wb.sheetnames:
+            ws = wb["WPR_Progress"]
+            rows = list(ws.iter_rows(values_only=True))
+            if rows and len(rows) > 1:
+                hdr = [str(c or "").strip() for c in rows[0]]
+                p_i = hdr.index("Package")
+                rpt_i = hdr.index("Report_No")
+                id_i = hdr.index("Item_ID")
+                desc_i = hdr.index("Description")
+                wk_i = hdr.index("Target_Week") if "Target_Week" in hdr else -1
+                wt_i = hdr.index("Weight_Pct")
+                pl_i = hdr.index("Planned_Pct")
+                ac_i = hdr.index("Actual_Pct")
+                wp_i = hdr.index("Weighted_Planned_Pct")
+                wa_i = hdr.index("Weighted_Actual_Pct")
+                sub_i = hdr.index("Is_Sub") if "Is_Sub" in hdr else -1
+                for r in rows[1:]:
+                    p = str(r[p_i] or "").strip()
+                    if p in results and str(r[rpt_i] or "") == results[p]["report_no"]:
+                        results[p]["milestone_progress"].append({
+                            "id": str(r[id_i] or "").strip(),
+                            "description": str(r[desc_i] or "").strip(),
+                            "target_week": r[wk_i] if wk_i >= 0 else "",
+                            "weight_pct": float(r[wt_i] or 0.0),
+                            "planned_pct": float(r[pl_i] or 0.0),
+                            "actual_pct": float(r[ac_i] or 0.0),
+                            "weighted_planned_pct": float(r[wp_i] or 0.0),
+                            "weighted_actual_pct": float(r[wa_i] or 0.0),
+                            "is_sub": bool(r[sub_i]) if sub_i >= 0 else False,
                         })
     finally:
         wb.close()
