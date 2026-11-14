@@ -2,8 +2,8 @@
 
 **Project:** Weekly Project Management & Vendor Package Monitoring Dashboard (ASK & Z1F)  
 **Document Code:** WRAPUP-VTRK-2026-002  
-**Release Date:** November 13, 2026 (Updated from November 07, 2026 baseline)  
-**Target Environment:** Local Working Computer (No Git CLI) $\rightarrow$ GitHub Web Interface $\rightarrow$ Render.com Cloud  
+**Release Date:** November 14, 2026 (Updated from November 13, 2026 baseline)  
+**Target Environment:** Local Working Computer / Render.com Cloud $\rightarrow$ GitHub (`🚀 Push to GitHub` or Web UI) $\rightarrow$ Render.com Cloud  
 
 ---
 
@@ -47,21 +47,24 @@ flowchart TD
 
 ## 2. File Upload Matrix (What to Upload vs What to Keep Local)
 
-### A. Core Application Files to Upload to GitHub (November 13, 2026 Release)
+### A. Core Application Files to Upload to GitHub (November 14, 2026 Release)
 
-Drag and drop these files into the GitHub Web UI to update code and extracted data:
+Drag and drop these files into the GitHub Web UI once (after setting `GITHUB_TOKEN` & `GITHUB_REPO` in Render, weekly data updates can use **`🚀 Push to GitHub`** directly from the dashboard):
 
-| File / Directory | Location in Repo | Size Range | Action | Description of Nov 13, 2026 Updates |
+| File / Directory | Location in Repo | Size Range | Action | Description of Nov 14, 2026 Updates |
 | :--- | :--- | :---: | :---: | :--- |
-| [`Export Data File_ASK.xlsx`](file:///c:/Users/pipes/OneDrive/Documents/Google_AntiGravity/Project/Vendor%20Tracking/Export%20Data%20File_ASK.xlsx) | Workspace Root | **~164 KB** | **UPLOAD** | Refreshed today with all ASK WPR progress, S-curves, MOM action items, and 7d/14d look-ahead activities. |
-| [`Export Data File_Z1F.xlsx`](file:///c:/Users/pipes/OneDrive/Documents/Google_AntiGravity/Project/Vendor%20Tracking/Export%20Data%20File_Z1F.xlsx) | Workspace Root | **~80 KB** | **UPLOAD** | Refreshed today with all Z1F MOM action items, KOM baselines, and 7d/14d look-ahead activities. |
-| [`index.html`](file:///c:/Users/pipes/OneDrive/Documents/Google_AntiGravity/Project/Vendor%20Tracking/index.html) | Workspace Root | ~72 KB | **UPLOAD** | Added `Const. Monitoring` button (`#btnViewConstruction`), Construction view container (`#viewConstruction`), simplified Gantt look-ahead, and cleaned up Dev Mode toggles. |
-| [`styles.css`](file:///c:/Users/pipes/OneDrive/Documents/Google_AntiGravity/Project/Vendor%20Tracking/styles.css) | Workspace Root | ~51 KB | **UPLOAD** | Added styles for responsive `4×2` platform milestone grid, T&I timeline badges, Construction Gantt bars, and Critical Path indicators. |
-| [`app.js`](file:///c:/Users/pipes/OneDrive/Documents/Google_AntiGravity/Project/Vendor%20Tracking/app.js) | Workspace Root | ~208 KB | **UPLOAD** | Added `renderConstructionMonitoringView()`, `renderTiTimelineWidget()`, Master Schedule lookahead rendering with Critical Path filters, and date-sorted platform milestones. |
-| [`vendor_dashboard/ingestors.py`](file:///c:/Users/pipes/OneDrive/Documents/Google_AntiGravity/Project/Vendor%20Tracking/vendor_dashboard/ingestors.py) | `vendor_dashboard/` | ~178 KB | **UPLOAD** | Master Schedule activity deduplication (`_clean_and_dedup_master_activities`), Z1F topside deck-level erection milestones, and Attachment 3 T&I timeline extractor. |
-| [`vendor_dashboard/reconciler.py`](file:///c:/Users/pipes/OneDrive/Documents/Google_AntiGravity/Project/Vendor%20Tracking/vendor_dashboard/reconciler.py) | `vendor_dashboard/` | ~139 KB | **UPLOAD** | Live execution mode priority enforcement, Construction monitoring lookahead payload generator, and vendor delay impact correlations. |
-| [`.gitignore`](file:///c:/Users/pipes/OneDrive/Documents/Google_AntiGravity/Project/Vendor%20Tracking/.gitignore) | Workspace Root | <1 KB | **UPLOAD** | Added `superseded/` to ignore old backup versions. |
-| **Documentation (.md & .txt)** | Workspace Root | ~150 KB | **UPLOAD** | `Handoff_Report.md`, `Lesson_Learn.md`, `MANUAL_UPLOAD_WRAPUP.md`, `SPEC.md`, `README.txt`, `README.md`. |
+| [`Export Data File_ASK.xlsx`](file:///c:/Users/pipes/OneDrive/Documents/Google_AntiGravity/Project/Vendor%20Tracking/Export%20Data%20File_ASK.xlsx) | Workspace Root | **~183 KB** | **UPLOAD** | Refreshed with ASK WPR progress, S-curves, `WPR_Milestones`/`WPR_Progress`, `VDRL_Summary`, `Master_Construction`, MOM actions, and full-scope 7d/14d LookAhead (`468`/`619`). |
+| [`Export Data File_Z1F.xlsx`](file:///c:/Users/pipes/OneDrive/Documents/Google_AntiGravity/Project/Vendor%20Tracking/Export%20Data%20File_Z1F.xlsx) | Workspace Root | **~114 KB** | **UPLOAD** | Refreshed with Z1F `.docx` WPR (`CCV` `WPR-002`, S-curve, `WPR_Milestones`/`WPR_Progress`), MOM actions, `Master_Construction`, and full-scope 7d/14d LookAhead (`330`/`494`). |
+| [`server.py`](file:///c:/Users/pipes/OneDrive/Documents/Google_AntiGravity/Project/Vendor%20Tracking/server.py) | Workspace Root | ~20 KB | **UPLOAD** | Added `.docx` WPR auto-sync in `/api/upload`, `GET /api/github-status`, and `POST /api/push-github` (atomic GitHub commit). |
+| [`index.html`](file:///c:/Users/pipes/OneDrive/Documents/Google_AntiGravity/Project/Vendor%20Tracking/index.html) | Workspace Root | ~74 KB | **UPLOAD** | Added **`🚀 Push to GitHub`** button, 4-step Quick Guide in the upload modal, and `app.js?v=20261114_2`. |
+| [`styles.css`](file:///c:/Users/pipes/OneDrive/Documents/Google_AntiGravity/Project/Vendor%20Tracking/styles.css) | Workspace Root | ~51 KB | **UPLOAD** | Styles for `4×2` platform milestone grid, T&I timeline badges, Construction Gantt bars, and Critical Path indicators. |
+| [`app.js`](file:///c:/Users/pipes/OneDrive/Documents/Google_AntiGravity/Project/Vendor%20Tracking/app.js) | Workspace Root | ~210 KB | **UPLOAD** | Added default-hidden toggle on `1. Area of Concern — Vendor Delay Impact to Construction` (`ASK` & `Z1F`) and `triggerPushGithub()`. |
+| [`export_dashboard_data.py`](file:///c:/Users/pipes/OneDrive/Documents/Google_AntiGravity/Project/Vendor%20Tracking/export_dashboard_data.py) | Workspace Root | ~15 KB | **UPLOAD** | Added `.docx` WPR, `WPR_Milestones`, `WPR_Progress`, `VDRL_Summary`, and `Master_Construction` export sync. |
+| [`vendor_dashboard/ingestors.py`](file:///c:/Users/pipes/OneDrive/Documents/Google_AntiGravity/Project/Vendor%20Tracking/vendor_dashboard/ingestors.py) | `vendor_dashboard/` | ~182 KB | **UPLOAD** | Added `WPR_Milestones`/`WPR_Progress`/`VDRL_Summary`/`Master_Construction` cloud readers, full-scope `LookAhead` reader, and `_psr_sort_key` `YYYYMMDD` sorting. |
+| [`vendor_dashboard/reconciler.py`](file:///c:/Users/pipes/OneDrive/Documents/Google_AntiGravity/Project/Vendor%20Tracking/vendor_dashboard/reconciler.py) | `vendor_dashboard/` | ~140 KB | **UPLOAD** | Added full-scope `export_lookahead_7d`/`14d` cloud fallback parity for ASK and Z1F. |
+| [`vendor_dashboard/extractors/excel_sync.py`](file:///c:/Users/pipes/OneDrive/Documents/Google_AntiGravity/Project/Vendor%20Tracking/vendor_dashboard/extractors/excel_sync.py) | `vendor_dashboard/extractors/` | ~23 KB | **UPLOAD** | Added `WPR_Milestones`, `WPR_Progress`, `VDRL_Summary`, and `Master_Construction` sheet writers. |
+| [`.gitignore`](file:///c:/Users/pipes/OneDrive/Documents/Google_AntiGravity/Project/Vendor%20Tracking/.gitignore) | Workspace Root | <1 KB | **UPLOAD** | Excludes `superseded/`, `KOM/`, `WPR/`, `MOM/`, `VDRL/`, and `*.SCD-*.pdf`. |
+| **Documentation (.md)** | Workspace Root | ~150 KB | **UPLOAD** | `Handoff_Report.md`, `Lesson_Learn.md`, `MANUAL_UPLOAD_WRAPUP.md`, `SPEC.md`, `README.md`. |
 
 ---
 

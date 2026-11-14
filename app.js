@@ -2597,6 +2597,37 @@ async function triggerSyncAll() {
     }
 }
 
+async function triggerPushGithub() {
+    const statusBox = document.getElementById("uploadStatusBox");
+    statusBox.innerHTML = `⏳ Checking & pushing updated Render data files to GitHub...`;
+    try {
+        const resp = await fetch("/api/push-github", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({}),
+        });
+        const resJson = await resp.json();
+        if (resp.ok) {
+            if (resJson.status === "up_to_date") {
+                statusBox.innerHTML = `✅ <strong>Already Up-to-Date:</strong> ${esc(resJson.message || "All Render data files match GitHub.")}`;
+            } else {
+                const filesList = (resJson.pushed_files || []).map((f) => `<code>${esc(f)}</code>`).join(", ");
+                const commitLink = resJson.commit_url
+                    ? ` <a href="${esc(resJson.commit_url)}" target="_blank" rel="noopener">View Commit ↗</a>`
+                    : "";
+                statusBox.innerHTML = `✅ <strong>Pushed to GitHub (${esc(resJson.repo || "")}@${esc(resJson.branch || "main")})!</strong>${commitLink}<br/>• Updated: ${filesList}`;
+                APP_STATE.lastUploadBannerMsg = `Pushed ${(resJson.pushed_files || []).length} updated file(s) to GitHub.`;
+            }
+        } else if (resJson.needs_config) {
+            statusBox.innerHTML = `⚠️ <strong>GitHub Token Not Configured:</strong> ${esc(resJson.error)}<br/>Set <code>GITHUB_TOKEN</code> and <code>GITHUB_REPO</code> in <strong>Render → Environment</strong>, or use <strong>💾 Download Export Data File</strong> for manual upload.`;
+        } else {
+            statusBox.innerHTML = `❌ Push failed: ${esc(resJson.error || "Unknown error")}`;
+        }
+    } catch (e) {
+        statusBox.innerHTML = `❌ Push error: ${esc(e.message)}`;
+    }
+}
+
 function readFileAsBase64(file) {
     return new Promise((resolve, reject) => {
         const reader = new FileReader();

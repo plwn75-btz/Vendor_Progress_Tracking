@@ -7,6 +7,9 @@ Follows Lesson_Learn.md and Handoff_Report.md:
 """
 
 import base64
+import datetime
+import glob
+import hashlib
 import http.server
 import importlib
 import json
@@ -14,8 +17,10 @@ import os
 import re
 import socketserver
 import threading
+import urllib.error
+import urllib.request
 from urllib.parse import parse_qs, urlparse
-from typing import Any, Dict, Tuple
+from typing import Any, Dict, List, Tuple
 
 import vendor_dashboard.models
 import vendor_dashboard.ingestors
@@ -141,6 +146,19 @@ class DashboardHandler(http.server.SimpleHTTPRequestHandler):
 
         if route == "/api/health":
             self._send_json(200, {"status": "ok", "workspace": WORKSPACE_DIR})
+            return
+
+        if route == "/api/github-status":
+            token = os.environ.get("GITHUB_TOKEN", "").strip()
+            repo = os.environ.get("GITHUB_REPO", "").strip()
+            branch = os.environ.get("GITHUB_BRANCH", "main").strip() or "main"
+            self._send_json(200, {
+                "configured": bool(token and repo),
+                "has_token": bool(token),
+                "repo": repo,
+                "branch": branch,
+                "upload_url": f"https://github.com/{repo}/upload/{branch}" if repo else "",
+            })
             return
 
         if route == "/api/download-export-file":
@@ -340,7 +358,153 @@ class DashboardHandler(http.server.SimpleHTTPRequestHandler):
                 self._send_json(500, {"error": str(exc)})
             return
 
+        if parsed.path == "/api/push-github":
+            try:
+                length = int(self.headers.get("Content-Length", "0"))
+                raw = self.rfile.read(length) if length > 0 else b"{}"
+                payload = json.loads(raw.decode("utf-8")) if raw else {}
+                token = str(payload.get("token") or os.environ.get("GITHUB_TOKEN", "")).strip()
+                repo = str(payload.get("repo") or os.environ.get("GITHUB_REPO", "")).strip()
+                branch = str(payload.get("branch") or os.environ.get("GITHUB_BRANCH", "main")).strip() or "main"
+                commit_msg = str(payload.get("message") or "").strip()
+
+                if not token or not repo:
+                    self._send_json(400, {
+                        "error": "GITHUB_TOKEN and GITHUB_REPO are not configured in Render Environment Variables.",
+                        "needs_config": True,
+                    })
+                    return
+
+                result = _push_files_to_github(
+                    workspace_dir=WORKSPACE_DIR,
+                    token=token,
+                    repo=repo,
+                    branch=branch,
+                    commit_msg=commit_msg,
+                )
+                self._send_json(200, result)
+            except urllib.error.HTTPError as exc:
+                err_body = exc.read().decode("utf-8", errors="ignore")
+                self._send_json(502, {"error": f"GitHub API HTTP {exc.code}: {err_body[:300]}"})
+            except Exception as exc:
+                self._send_json(500, {"error": str(exc)})
+            return
+
         self._send_json(404, {"error": "Unknown POST endpoint"})
+
+
+def _collect_github_render_files(workspace_dir: str) -> List[str]:
+    """Return root-relative filenames of Render-required data files to sync to GitHub."""
+    candidates: List[str] = []
+    for name in ("Export Data File_ASK.xlsx", "Export Data File_Z1F.xlsx"):
+        if os.path.isfile(os.path.join(workspace_dir, name)):
+            candidates.append(name)
+    for pattern in ("*Procurement Plan*.xlsx", "*Vendor Document Log Report*.xlsx", "*Vendor Document Log Report*.xls"):
+        for path in sorted(glob.glob(os.path.join(workspace_dir, pattern))):
+            bn = os.path.basename(path)
+            if not bn.startswith("~$") and bn not in candidates:
+                candidates.append(bn)
+    return candidates
+
+
+def _github_api_request(url: str, token: str, method: str = "GET", body: Dict[str, Any] = None) -> Dict[str, Any]:
+    headers = {
+        "Accept": "application/vnd.github+json",
+        "Authorization": f"Bearer {token}",
+        "X-GitHub-Api-Version": "2022-11-28",
+        "User-Agent": "Vendor-Tracking-Dashboard",
+    }
+    data = None
+    if body is not None:
+        data = json.dumps(body).encode("utf-8")
+        headers["Content-Type"] = "application/json"
+    req = urllib.request.Request(url, data=data, headers=headers, method=method)
+    with urllib.request.urlopen(req, timeout=30) as resp:
+        return json.loads(resp.read().decode("utf-8"))
+
+
+def _push_files_to_github(
+    workspace_dir: str,
+    token: str,
+    repo: str,
+    branch: str = "main",
+    commit_msg: str = "",
+) -> Dict[str, Any]:
+    """Commit all changed Render data files in a single atomic commit via GitHub Git Data API."""
+    files = _collect_github_render_files(workspace_dir)
+    if not files:
+        return {"status": "up_to_date", "message": "No Render data files found in workspace.", "pushed_files": []}
+
+    api_base = f"https://api.github.com/repos/{repo}"
+    ref_data = _github_api_request(f"{api_base}/git/ref/heads/{branch}", token)
+    head_sha = ref_data["object"]["sha"]
+
+    commit_data = _github_api_request(f"{api_base}/git/commits/{head_sha}", token)
+    base_tree_sha = commit_data["tree"]["sha"]
+
+    tree_data = _github_api_request(f"{api_base}/git/trees/{base_tree_sha}", token)
+    existing_shas = {item["path"]: item["sha"] for item in tree_data.get("tree", []) if item.get("type") == "blob"}
+
+    tree_entries: List[Dict[str, str]] = []
+    pushed_files: List[str] = []
+    for fname in files:
+        fpath = os.path.join(workspace_dir, fname)
+        with open(fpath, "rb") as f:
+            raw = f.read()
+        local_git_sha = hashlib.sha1(f"blob {len(raw)}\0".encode("utf-8") + raw).hexdigest()
+        if existing_shas.get(fname) == local_git_sha:
+            continue
+
+        blob_resp = _github_api_request(
+            f"{api_base}/git/blobs",
+            token,
+            method="POST",
+            body={"content": base64.b64encode(raw).decode("ascii"), "encoding": "base64"},
+        )
+        tree_entries.append({
+            "path": fname,
+            "mode": "100644",
+            "type": "blob",
+            "sha": blob_resp["sha"],
+        })
+        pushed_files.append(fname)
+
+    if not tree_entries:
+        return {
+            "status": "up_to_date",
+            "message": "All Render data files already match GitHub.",
+            "files_checked": len(files),
+            "pushed_files": [],
+        }
+
+    new_tree = _github_api_request(
+        f"{api_base}/git/trees",
+        token,
+        method="POST",
+        body={"base_tree": base_tree_sha, "tree": tree_entries},
+    )
+    ts_str = datetime.datetime.now().strftime("%Y-%m-%d %H:%M")
+    msg = commit_msg or f"Dashboard weekly data sync ({ts_str}): {', '.join(pushed_files)}"
+    new_commit = _github_api_request(
+        f"{api_base}/git/commits",
+        token,
+        method="POST",
+        body={"message": msg, "tree": new_tree["sha"], "parents": [head_sha]},
+    )
+    _github_api_request(
+        f"{api_base}/git/refs/heads/{branch}",
+        token,
+        method="PATCH",
+        body={"sha": new_commit["sha"]},
+    )
+    return {
+        "status": "pushed",
+        "repo": repo,
+        "branch": branch,
+        "commit_sha": new_commit["sha"],
+        "commit_url": f"https://github.com/{repo}/commit/{new_commit['sha']}",
+        "pushed_files": pushed_files,
+    }
 
 
 class ThreadingHTTPServer(socketserver.ThreadingMixIn, http.server.HTTPServer):

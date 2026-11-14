@@ -455,3 +455,21 @@ When you drop new weekly files (`WPR/`, `VDRL/`, `KOM/`, `MM-ASK-1A-GEN01-PJM-SC
 - Moved `backup_original_ui_20261113/` into `superseded/` directory.
 - Added `superseded/` to `.gitignore` to prevent unnecessary upload bloat.
 
+---
+
+## 6. November 14, 2026 Release — Render Cloud Parity, `.docx` WPR Sync, Construction Toggle & 1-Click GitHub Sync
+
+### 6.1. Full Local vs. Render Cloud Parity
+- **`.docx` WPR Export & Milestone/Progress Sync:** Updated `export_dashboard_data.py`, `vendor_dashboard/extractors/excel_sync.py`, and `vendor_dashboard/ingestors.py` to export `.docx` WPRs (`MM-ZTK-1F-GEN-CCV-PIP-WPR-0001 0916.docx`) and store `WPR_Milestones` and `WPR_Progress` sheets in `Export Data File_*.xlsx`, ensuring Elements 4, 5, and 7 on Render strictly use `WPR (Priority #1)`. Also fixed Z1F `document_no` prefixing (`MM-ZTK-1F-GEN-{p}-WPR`).
+- **`VDRL_Summary` & `Master_Construction` Cloud Fallback:** Added `VDRL_Summary` and `Master_Construction` sync/readers so Render retains VDRL counts and Construction Monitoring Gantt/14d activities without uploading raw `VDRL/` or `*.SCD-*.pdf` files.
+- **Look-Ahead 7/14-Day Cloud Parity:** Removed the `Scope == "Master Schedule"` filter in `read_master_schedule_export_file()` and safely parsed duration strings (e.g. `'102 days'`) via regex, matching Local counts identically on Render (**ASK:** `468` 7d / `619` 14d / `156` `TF=0`; **Z1F:** `330` 7d / `494` 14d / `31` `TF=0`).
+- **PSR Freshness Sorting:** Updated `_psr_sort_key()` in `ingestors.py` to prioritize embedded `YYYYMMDD` date and revision number (`R7 > R3`) over Windows file `ctime`.
+
+### 6.2. UI & Upload Modal Enhancements
+- **Construction Monitoring Default-Hidden Toggle (`app.js`):** Added `APP_STATE.constConcernsVisible: false` and `Show All (N)` / `Hide All` toggle on `1. Area of Concern — Vendor Delay Impact to Construction` for both **ASK** and **Z1F** (clicking KPI Card #1 auto-expands and scrolls to the section).
+- **Upload Modal Quick Guide & `.docx` Auto-Sync (`index.html`, `server.py`):** Added a 4-step Quick Guide at the bottom of the upload modal covering categories 1–6 and enabled `.docx` WPR auto-extraction in `POST /api/upload`.
+
+### 6.3. 1-Click `🚀 Push to GitHub` (Option A)
+- Added `GET /api/github-status` and `POST /api/push-github` in `server.py` using the GitHub Git Data API (`urllib.request`) to commit changed Render data files (`Export Data File_ASK.xlsx`, `Export Data File_Z1F.xlsx`, `*Procurement Plan*.xlsx`, `*Vendor Document Log Report*.xls*`) in a **single atomic commit** (skipping unchanged files via Git blob SHA comparison).
+- Configure `GITHUB_TOKEN`, `GITHUB_REPO` (`owner/repo`), and optional `GITHUB_BRANCH` (`main`) in **Render → Environment** to run 1-click pushes directly from Render (bypassing company PC proxy/firewall restrictions).
+

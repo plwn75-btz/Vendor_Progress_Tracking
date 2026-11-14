@@ -85,9 +85,12 @@ By default, the server runs on port **8080** (or port specified via `PORT` envir
 
 | Endpoint | Method | Description |
 |---|---|---|
-| `/api/data` | `GET` | Returns aggregated JSON data containing summary KPIs, project packages, 24-stage milestone schedules, and lookahead items. |
-| `/api/refresh` | `GET` | Forces the backend to reload and re-parse the latest Excel spreadsheets from disk. |
-| `/api/upload` | `POST` | Multipart form upload endpoint for uploading new weekly cut-off Excel files (`Attachment 1-...` or `Attachment 2-...`). Automatically runs data extraction upon save. |
+| `/api/snapshot` | `GET` | Returns aggregated JSON data containing summary KPIs, project packages, 24-stage milestone schedules, Construction Monitoring, and Look-Ahead items. |
+| `/api/upload` | `POST` | JSON base64 upload endpoint for categories 1–6 (`WPR`, `MOM`, `VDRL`, `VDLR`, `PSR`, `KOM`) with automatic `WPR`/`MOM` Excel sync. |
+| `/api/sync-all` | `POST` | Runs full extraction across all local `KOM`, `WPR`, `MOM`, `VDRL`, and Master Schedule files into `Export Data File_ASK.xlsx` and `Export Data File_Z1F.xlsx`. |
+| `/api/download-export-file` | `GET` | Downloads `Export Data File_ASK.xlsx` or `Export Data File_Z1F.xlsx` (`?project=ASK|Z1F`). |
+| `/api/github-status` | `GET` | Checks whether `GITHUB_TOKEN` and `GITHUB_REPO` are configured in environment variables. |
+| `/api/push-github` | `POST` | Commits updated Render data files (`Export Data File_*.xlsx`, `PSR`, `Client Doc Log`) to GitHub in one atomic commit via GitHub Git Data API. |
 
 ---
 
