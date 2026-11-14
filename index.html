@@ -909,6 +909,14 @@
                 <button type="button" class="btn-action" onclick="closeUploadModal()">✕ Close</button>
             </div>
 
+            <div style="background:var(--bg-subtle, rgba(59,130,246,0.08));border:1px solid var(--border-color, rgba(59,130,246,0.25));border-radius:8px;padding:10px 12px;font-size:12px;line-height:1.5;color:var(--text-secondary);">
+                <div style="font-weight:700;color:var(--text-primary);margin-bottom:4px;">Quick Guide — How to Upload &amp; Update Documents (1–6):</div>
+                <div><strong>1.</strong> Select category <strong>1–6</strong> below (<strong>1. WPR</strong> <code>.pdf/.docx</code>, <strong>2. MOM</strong> <code>.pdf</code>, <strong>3. VDRL</strong> <code>.xlsx</code>, <strong>4. Client Doc Log</strong> <code>.xls/.xlsx</code>, <strong>5. PSR</strong> <code>.xlsx</code>, <strong>6. KOM</strong> <code>.pdf/.pptx</code>).</div>
+                <div><strong>2.</strong> Click the drop box or drag &amp; drop file(s) — the file is saved to its folder and refreshes the dashboard immediately.</div>
+                <div><strong>3.</strong> Click <strong>⚡ Extract &amp; Sync to Excel</strong> to update <code>Export Data File_ASK.xlsx</code> / <code>Export Data File_Z1F.xlsx</code> (required for <code>WPR</code>, <code>MOM</code>, <code>VDRL</code>, <code>KOM</code>).</div>
+                <div><strong>4.</strong> For <strong>Render Cloud</strong>: click <strong>💾 Download Export Data File</strong> and upload it to <strong>GitHub</strong> (along with any updated <code>PSR</code> or <code>Client Doc Log</code> <code>.xlsx</code>).</div>
+            </div>
+
             <div style="display:flex;flex-direction:column;gap:10px;">
                 <label class="kv-label" for="uploadDocType">1. Select Designated Document Category</label>
                 <select id="uploadDocType" class="select-control" style="width:100%;">
@@ -945,6 +953,6 @@
         </div>
     </div>
 
-    <script src="app.js?v=20261113_7"></script>
+    <script src="app.js?v=20261114_1"></script>
 </body>
 </html>

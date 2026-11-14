@@ -11,6 +11,7 @@ import http.server
 import importlib
 import json
 import os
+import re
 import socketserver
 import threading
 from urllib.parse import parse_qs, urlparse
@@ -240,11 +241,57 @@ class DashboardHandler(http.server.SimpleHTTPRequestHandler):
                 upload_proj = "Z1F" if is_z1f else "ASK"
                 from vendor_dashboard.ingestors import get_export_data_path
                 export_path = get_export_data_path(WORKSPACE_DIR, project=upload_proj)
-                if doc_type == "WPR" and u.endswith(".PDF"):
+                if doc_type == "WPR" and u.endswith((".PDF", ".DOCX")):
                     from vendor_dashboard.extractors.wpr_mom_extractor import extract_wpr_pdf
                     from vendor_dashboard.extractors.excel_sync import sync_wpr_data_to_excel
+                    from vendor_dashboard.ingestors import parse_wpr_file
                     try:
-                        wpr_rec = extract_wpr_pdf(file_bytes, filename=filename)
+                        if u.endswith(".DOCX"):
+                            pw = parse_wpr_file(dest_path)
+                            pkg_code = pw.get("package_code") or filename.split("-")[4] if "-" in filename else filename
+                            rep_no = pw.get("report_no") or "WPR-001"
+                            cut_dt = pw.get("cut_off_date") or pw.get("report_date") or ""
+                            sc_obj = pw.get("scurve") or {}
+                            sc_pts = sc_obj.get("points", []) if isinstance(sc_obj, dict) else list(sc_obj)
+                            plan_p = float(pw.get("overall_planned_pct") or (sc_obj.get("planned_to_date_pct") if isinstance(sc_obj, dict) else 0.0) or 0.0)
+                            act_p = float(pw.get("overall_actual_pct") or (sc_obj.get("actual_to_date_pct") if isinstance(sc_obj, dict) else 0.0) or 0.0)
+                            scurve_rows = [
+                                {
+                                    "package": pkg_code,
+                                    "report_no": rep_no,
+                                    "cutoff_date": cut_dt,
+                                    "week_no": int(pt.get("week_num") or (re.findall(r"\d+", str(pt.get("week") or pt.get("week_no") or "0")) or [0])[0]),
+                                    "week_date": pt.get("date") or pt.get("week_date") or "",
+                                    "plan_cum_pct": float(pt.get("planned_pct") or pt.get("planned_cum") or pt.get("plan_cum_pct") or 0.0),
+                                    "actual_cum_pct": float(pt.get("actual_pct") or pt.get("actual_cum") or pt.get("actual_cum_pct") or 0.0) if pt.get("actual_pct") is not None else None,
+                                    "plan_inc_pct": float(pt.get("planned_inc") or pt.get("plan_inc_pct") or 0.0),
+                                    "actual_inc_pct": float(pt.get("actual_inc") or pt.get("actual_inc_pct") or 0.0),
+                                }
+                                for pt in sc_pts if isinstance(pt, dict)
+                            ]
+                            wpr_rec = {
+                                "summary": {
+                                    "package": pkg_code, "report_no": rep_no, "cutoff_date": cut_dt,
+                                    "po_number": pw.get("po_number") or "", "vendor_name": pw.get("wpr_vendor_name") or "",
+                                    "target_delivery": "", "overall_plan_pct": plan_p, "overall_actual_pct": act_p,
+                                    "inc_plan_pct": 0.0, "inc_actual_pct": 0.0, "deviation_pct": round(act_p - plan_p, 2),
+                                    "status_tone": "On Track" if act_p >= plan_p else "Behind",
+                                    "executive_highlights": "; ".join(pw.get("this_period_activities", [])[:3]),
+                                    "areas_of_concern": "; ".join(pw.get("outstanding_issues", [])[:3]),
+                                    "critical_path_notes": "",
+                                },
+                                "scurve": scurve_rows,
+                                "gantt_tasks": pw.get("gantt_tasks", []),
+                                "sub_orders": [],
+                                "milestones": pw.get("milestones", []),
+                                "milestone_progress": pw.get("milestone_progress", []),
+                            }
+                        else:
+                            wpr_rec = extract_wpr_pdf(file_bytes, filename=filename)
+                            if not wpr_rec.get("milestones") or not wpr_rec.get("milestone_progress"):
+                                pw_pdf = parse_wpr_file(dest_path)
+                                wpr_rec.setdefault("milestones", pw_pdf.get("milestones", []))
+                                wpr_rec.setdefault("milestone_progress", pw_pdf.get("milestone_progress", []))
                         stats = sync_wpr_data_to_excel(export_path, [wpr_rec])
                         extraction_info = {
                             "package": wpr_rec["summary"]["package"],
