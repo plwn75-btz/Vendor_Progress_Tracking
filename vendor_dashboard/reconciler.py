@@ -191,6 +191,12 @@ def build_project_lookahead_hub(
             cached_la = (master_schedule or {}).get("export_lookahead_7d" if window_days <= 7 else "export_lookahead_14d", [])
             if cached_la:
                 items.extend(dict(x) for x in cached_la)
+                items.sort(key=lambda x: (
+                    0 if x.get("critical_path") == "YES" else 1,
+                    x.get("start_date") or "9999-99-99",
+                    x.get("package_or_id") or "",
+                ))
+                return items
             else:
                 for ma in (master_schedule or {}).get("all_activities", []):
                     s_dt = ma.get("start_date", "")

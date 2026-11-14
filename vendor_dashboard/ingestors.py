@@ -3650,18 +3650,18 @@ def parse_master_schedule_pdf(workspace_dir: str, project: str = "ASK") -> Dict[
                             if not r or not r[0]:
                                 continue
                             rec = dict(zip(la_hdrs, r))
-                            if str(rec.get("Scope") or "").strip() != "Master Schedule":
-                                continue
+                            scope_val = str(rec.get("Scope") or "Master Schedule").strip()
                             dur_val = rec.get("Duration_Days")
+                            dur_m = re.search(r"-?\d+", str(dur_val)) if dur_val not in (None, "") else None
                             target_list.append({
-                                "scope": "Master Schedule",
+                                "scope": scope_val,
                                 "package_or_id": str(rec.get("Package_or_ID") or ""),
                                 "package_name": str(rec.get("Package_Name") or ""),
                                 "activity_id": str(rec.get("Activity_ID") or ""),
                                 "activity_name": str(rec.get("Activity_Name") or ""),
                                 "start_date": str(rec.get("Start_Date") or "")[:10],
                                 "finish_date": str(rec.get("Finish_Date") or "")[:10],
-                                "duration_days": int(float(dur_val)) if dur_val not in (None, "") else None,
+                                "duration_days": int(dur_m.group(0)) if dur_m else None,
                                 "critical_path": str(rec.get("Critical_Path") or "NO"),
                                 "category": str(rec.get("Category") or "General EPC"),
                                 "source": str(rec.get("Source") or doc_no),
