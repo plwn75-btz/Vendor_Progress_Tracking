@@ -8,6 +8,7 @@ const APP_STATE = {
     constTab: "gantt",          // 'gantt' (-7d..+14d) | 'forecast14d' (14-Day Forecast) | 'all' (All Master Schedule Construction)
     constSearch: "",
     constCritOnly: false,
+    constConcernsVisible: false,
     execFocus: "ACTIONABLE",    // Executive priority list focus: 'ACTIONABLE' | 'ALREADY_DELAYED' | 'HIGH_RISK' | 'LOW_RISK' | 'HEALTHY'
     execShowAllPriority: false, // Executive priority list: top 10 vs all
     project: "ASK",             // 'ASK' | 'Z1F' (Separated & Switchable, starts on ASK)
@@ -3348,6 +3349,17 @@ function toggleConstCritOnly() {
     renderConstructionMonitoringView();
 }
 
+function toggleConstConcerns() {
+    APP_STATE.constConcernsVisible = !APP_STATE.constConcernsVisible;
+    renderConstructionMonitoringView();
+}
+
+function showConstConcernsAndScroll() {
+    APP_STATE.constConcernsVisible = true;
+    renderConstructionMonitoringView();
+    setTimeout(() => document.getElementById("cmConcernsSection")?.scrollIntoView({ behavior: "smooth" }), 50);
+}
+
 function _parseIsoDayMs(isoStr) {
     if (!isoStr || typeof isoStr !== "string") return NaN;
     const parts = isoStr.slice(0, 10).split("-").map(Number);
@@ -3597,7 +3609,7 @@ function renderConstructionMonitoringView() {
 
         <!-- 2. 4 CONSTRUCTION SUMMARY KPI CARDS -->
         <section class="ex-kpi-grid">
-            <div class="ex-kpi-card tone-rose" onclick="document.getElementById('cmConcernsSection')?.scrollIntoView({behavior:'smooth'})">
+            <div class="ex-kpi-card tone-rose" onclick="showConstConcernsAndScroll()">
                 <div class="ex-kpi-label">1. VENDOR IMPACT CONCERNS</div>
                 <div class="ex-kpi-num">${summary.vendor_impact_count || 0} <span class="ex-kpi-subnum">(${summary.vendor_critical_count || 0} Critical)</span></div>
                 <div class="ex-kpi-foot">
@@ -3633,12 +3645,16 @@ function renderConstructionMonitoringView() {
 
         <!-- 3. HIGHLIGHT #1: AREA OF CONCERN (VENDOR DELAY IMPACT TO CONSTRUCTION) -->
         <section class="card ex-section" id="cmConcernsSection">
-            <div class="card-header">
+            <div class="card-header" style="display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap;">
                 <div>
                     <div class="card-title">1. Area of Concern — Vendor Delay Impact to Construction (${concerns.length})</div>
                     <div class="card-subtitle">Packages whose Vendor Delivery ETA slips past Master Schedule Yard Erection / ROS or carries critical-path buffer risk</div>
                 </div>
+                <button type="button" class="btn-action ${APP_STATE.constConcernsVisible ? "" : "btn-primary"}" onclick="toggleConstConcerns()">
+                    ${APP_STATE.constConcernsVisible ? "🙈 Hide All" : `👁 Show All (${concerns.length})`}
+                </button>
             </div>
+            ${APP_STATE.constConcernsVisible ? `
             <div class="table-scroll" style="margin-top:8px;">
                 <table class="data-table">
                     <thead>
@@ -3655,6 +3671,7 @@ function renderConstructionMonitoringView() {
                     <tbody>${concernRowsHtml}</tbody>
                 </table>
             </div>
+            ` : `<div style="padding:10px 4px;font-size:12px;color:var(--text-muted);">Hidden by default (${concerns.length} vendor delay impact item${concerns.length === 1 ? "" : "s"}). Click <strong>Show All (${concerns.length})</strong> above to expand.</div>`}
         </section>
 
         <!-- 4. HIGHLIGHT #2 & #3: SIMPLIFIED GANTT (-7d..+14d), 14-DAY FORECAST & ALL ACTIVITIES -->
