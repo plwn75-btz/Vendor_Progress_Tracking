@@ -187,26 +187,51 @@ def build_project_lookahead_hub(
 
         # 1. Master Schedule Activities (ASK: MM-ASK-1A-GEN01-PJM-SCD-0001, Z1F: MM-ZTK-1F-GEN-PJM-SCD-0002)
         sched_doc_no = (master_schedule or {}).get("document_no") or ("MM-ASK-1A-GEN01-PJM-SCD-0001" if (master_schedule or {}).get("source_file", "").startswith("MM-ASK") else "MM-ZTK-1F-GEN-PJM-SCD-0002")
-        all_master_acts = (master_schedule or {}).get("all_activities", [])
-        for ma in all_master_acts:
-            s_dt = ma.get("start_date", "")
-            f_dt = ma.get("finish_date", "")
-            if _in_window_dates(s_dt, f_dt, window_end):
-                items.append({
-                    "scope": "Master Schedule",
-                    "package_or_id": ma.get("activity_id", ""),
-                    "package_name": f"Project Master Plan ({sched_doc_no})",
-                    "activity_id": ma.get("activity_id", ""),
-                    "activity_name": ma.get("activity_name", ""),
-                    "start_date": s_dt,
-                    "finish_date": f_dt,
-                    "duration_days": ma.get("duration_days"),
-                    "critical_path": "YES" if ma.get("is_critical_path") else "NO",
-                    "category": ma.get("category", "General EPC"),
-                    "source": sched_doc_no,
-                    "status": "Critical Path (TF=0)" if ma.get("is_critical_path") else "On Schedule",
-                    "window": window_label,
-                })
+        if (master_schedule or {}).get("from_export_cache"):
+            cached_la = (master_schedule or {}).get("export_lookahead_7d" if window_days <= 7 else "export_lookahead_14d", [])
+            if cached_la:
+                items.extend(dict(x) for x in cached_la)
+            else:
+                for ma in (master_schedule or {}).get("all_activities", []):
+                    s_dt = ma.get("start_date", "")
+                    f_dt = ma.get("finish_date", "")
+                    if _in_window_dates(s_dt, f_dt, window_end):
+                        items.append({
+                            "scope": "Master Schedule",
+                            "package_or_id": ma.get("activity_id", ""),
+                            "package_name": f"Project Master Plan ({sched_doc_no})",
+                            "activity_id": ma.get("activity_id", ""),
+                            "activity_name": ma.get("activity_name", ""),
+                            "start_date": s_dt,
+                            "finish_date": f_dt,
+                            "duration_days": ma.get("duration_days"),
+                            "critical_path": "YES" if ma.get("is_critical_path") else "NO",
+                            "category": ma.get("category", "General EPC"),
+                            "source": sched_doc_no,
+                            "status": "Critical Path (TF=0)" if ma.get("is_critical_path") else "On Schedule",
+                            "window": window_label,
+                        })
+        else:
+            all_master_acts = (master_schedule or {}).get("all_activities", [])
+            for ma in all_master_acts:
+                s_dt = ma.get("start_date", "")
+                f_dt = ma.get("finish_date", "")
+                if _in_window_dates(s_dt, f_dt, window_end):
+                    items.append({
+                        "scope": "Master Schedule",
+                        "package_or_id": ma.get("activity_id", ""),
+                        "package_name": f"Project Master Plan ({sched_doc_no})",
+                        "activity_id": ma.get("activity_id", ""),
+                        "activity_name": ma.get("activity_name", ""),
+                        "start_date": s_dt,
+                        "finish_date": f_dt,
+                        "duration_days": ma.get("duration_days"),
+                        "critical_path": "YES" if ma.get("is_critical_path") else "NO",
+                        "category": ma.get("category", "General EPC"),
+                        "source": sched_doc_no,
+                        "status": "Critical Path (TF=0)" if ma.get("is_critical_path") else "On Schedule",
+                        "window": window_label,
+                    })
 
         # 2. Package Level Activities
         for pkg in packages_list:

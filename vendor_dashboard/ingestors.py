@@ -1331,8 +1331,16 @@ def parse_psr_file(workspace_dir: str, project: str = "ASK") -> Dict[str, Dict[s
     if not candidates:
         return {}
 
-    # Sort by max(mtime, ctime) so a newly dropped file in Windows Explorer is picked immediately
-    candidates.sort(key=_file_freshness_key, reverse=True)
+    # Sort by embedded YYYYMMDD date + revision first, then max(mtime, ctime)
+    def _psr_sort_key(fp: str) -> Tuple[str, int, float]:
+        bn = os.path.basename(fp).upper()
+        m_dt = re.search(r"(20\d{6})", bn)
+        dt_str = m_dt.group(1) if m_dt else ""
+        m_rev = re.search(r"\bR(?:EV)?\.?\s*(\d+)\b", bn)
+        rev_num = int(m_rev.group(1)) if m_rev else 0
+        return (dt_str, rev_num, _file_freshness_key(fp))
+
+    candidates.sort(key=_psr_sort_key, reverse=True)
     fpath = candidates[0]
     fname = os.path.basename(fpath)
     cache_key = ("PSR", project, fpath, _file_freshness_key(fpath))
@@ -3496,6 +3504,8 @@ def parse_master_schedule_pdf(workspace_dir: str, project: str = "ASK") -> Dict[
     review_date = "2026-08-05" if is_z1f else "2026-10-13"
     catalog = {k: dict(v) for k, v in Z1F_MASTER_SCHEDULE_CATALOG.items()} if is_z1f else {k: dict(v) for k, v in ASK_MASTER_SCHEDULE_CATALOG.items()}
     all_activities: List[Dict[str, Any]] = []
+    export_la_7d: List[Dict[str, Any]] = []
+    export_la_14d: List[Dict[str, Any]] = []
 
     if candidates:
         candidates.sort(key=_file_freshness_key, reverse=True)
@@ -3524,6 +3534,7 @@ def parse_master_schedule_pdf(workspace_dir: str, project: str = "ASK") -> Dict[
         except Exception as exc:
             print(f"[WARN] Non-fatal error scanning Master Schedule PDF {fname}: {exc}")
         is_available = True
+        from_export_cache = False
     else:
         # Cloud fallback: read Master_Construction from Export Data File_<PROJECT>.xlsx when PDF is excluded
         export_path = os.path.join(workspace_dir, get_export_data_filename(project.upper()))
@@ -3560,13 +3571,47 @@ def parse_master_schedule_pdf(workspace_dir: str, project: str = "ASK") -> Dict[
                             "page": int(pg_val) if pg_val not in (None, "") else None,
                             "source": str(rec.get("Source") or fname),
                         })
+                for la_sheet, target_list, w_lbl in [
+                    ("LookAhead_7Days", export_la_7d, "7-Day"),
+                    ("LookAhead_14Days", export_la_14d, "14-Day"),
+                ]:
+                    if la_sheet in wb.sheetnames:
+                        ws_la = wb[la_sheet]
+                        la_iter = ws_la.iter_rows(values_only=True)
+                        la_hdrs = [str(h or "").strip() for h in next(la_iter, ())]
+                        for r in la_iter:
+                            if not r or not r[0]:
+                                continue
+                            rec = dict(zip(la_hdrs, r))
+                            if str(rec.get("Scope") or "").strip() != "Master Schedule":
+                                continue
+                            dur_val = rec.get("Duration_Days")
+                            target_list.append({
+                                "scope": "Master Schedule",
+                                "package_or_id": str(rec.get("Package_or_ID") or ""),
+                                "package_name": str(rec.get("Package_Name") or ""),
+                                "activity_id": str(rec.get("Activity_ID") or ""),
+                                "activity_name": str(rec.get("Activity_Name") or ""),
+                                "start_date": str(rec.get("Start_Date") or "")[:10],
+                                "finish_date": str(rec.get("Finish_Date") or "")[:10],
+                                "duration_days": int(float(dur_val)) if dur_val not in (None, "") else None,
+                                "critical_path": str(rec.get("Critical_Path") or "NO"),
+                                "category": str(rec.get("Category") or "General EPC"),
+                                "source": str(rec.get("Source") or doc_no),
+                                "status": str(rec.get("Status") or "On Schedule"),
+                                "window": w_lbl,
+                            })
                 wb.close()
             except Exception as exc:
                 print(f"[WARN] Non-fatal error reading Master_Construction fallback: {exc}")
         is_available = bool(all_activities)
+        from_export_cache = True
 
     result = {
         "available": is_available,
+        "from_export_cache": from_export_cache,
+        "export_lookahead_7d": export_la_7d,
+        "export_lookahead_14d": export_la_14d,
         "source_file": fname,
         "document_no": doc_no,
         "revision": revision,
