@@ -932,14 +932,14 @@
                 </div>
             </div>
 
-            <div style="display:flex;gap:10px;margin-top:4px;flex-wrap:wrap;">
-                <button type="button" class="btn-action btn-primary" onclick="triggerSyncAll()" title="Run full extraction across all local WPR, MOM, and KOM files into project-specific Export Data Files">
+            <div style="display:grid;grid-template-columns:auto auto minmax(max-content, 1fr);gap:8px;margin-top:4px;width:100%;">
+                <button type="button" class="btn-action btn-primary" style="justify-content:center;white-space:nowrap;font-size:12px;padding:8px 12px;" onclick="triggerSyncAll()" title="Run full extraction across all local WPR, MOM, and KOM files into project-specific Export Data Files">
                     ⚡ Extract &amp; Sync to Excel
                 </button>
-                <button type="button" class="btn-action" style="background:#7c3aed;color:#fff;border-color:#7c3aed;" onclick="triggerPushGithub()" title="Commit updated Export Data Files, PSR, and Client Doc Log directly to GitHub (requires GITHUB_TOKEN &amp; GITHUB_REPO)">
+                <button type="button" class="btn-action" style="background:#7c3aed;color:#fff;border-color:#7c3aed;justify-content:center;white-space:nowrap;font-size:12px;padding:8px 12px;" onclick="triggerPushGithub()" title="Commit updated Export Data Files, PSR, and Client Doc Log directly to GitHub (requires GITHUB_TOKEN &amp; GITHUB_REPO)">
                     🚀 Push to GitHub
                 </button>
-                <a id="btnDownloadExportFile" href="/api/download-export-file?project=ASK" class="btn-action" style="text-decoration:none;display:inline-flex;align-items:center;" download="Export Data File_ASK.xlsx" title="Download current project's Export Data File (< 1 MB)">
+                <a id="btnDownloadExportFile" href="/api/download-export-file?project=ASK" class="btn-action" style="text-decoration:none;display:inline-flex;align-items:center;justify-content:center;white-space:nowrap;font-size:12px;padding:8px 12px;box-sizing:border-box;" download="Export Data File_ASK.xlsx" title="Download current project's Export Data File (< 1 MB)">
                     💾 Download Export Data File (ASK)
                 </a>
             </div>
@@ -972,6 +972,6 @@
         </div>
     </div>
 
-    <script src="app.js?v=20261114_2"></script>
+    <script src="app.js?v=20261115_1"></script>
 </body>
 </html>

@@ -3112,6 +3112,38 @@ function renderExecutiveView() {
             `;
         }).join("");
 
+        const freeIssueHtml = (Array.isArray(kd.free_issue_materials) && kd.free_issue_materials.length) ? `
+            <div style="margin-top:12px;">
+                <div style="font-size:12px;font-weight:700;color:var(--text-secondary);margin-bottom:8px;display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:6px;">
+                    <span>📦 Free Issue Material — Critical Milestones (SCD-0001)</span>
+                    <span style="font-weight:500;font-size:11px;color:var(--text-muted);">1) Riser Line Pipe &amp; 2) Bend &amp; Subsea Flange</span>
+                </div>
+                <div class="ex-platform-grid">
+                    ${kd.free_issue_materials.map(fim => `
+                        <div class="ex-platform-card">
+                            <div class="ex-platform-head" style="display:flex;justify-content:space-between;align-items:center;gap:8px;">
+                                <span>${esc(fim.platform)} — Free Issue Material</span>
+                                ${fim.subtitle ? `<span style="font-size:11px;font-weight:500;color:var(--text-muted);">${esc(fim.subtitle)}</span>` : ""}
+                            </div>
+                            <div class="ex-platform-list" style="gap:10px;">
+                                ${(fim.materials || []).map(mat => `
+                                    <div style="padding-top:4px;border-top:1px dashed var(--border-color, rgba(148,163,184,0.2));">
+                                        <div style="font-size:11.5px;font-weight:700;color:var(--text-primary);margin-bottom:4px;">${esc(mat.material)}</div>
+                                        ${(mat.milestones || []).map(m => `
+                                            <div class="ex-platform-row">
+                                                <span class="ex-platform-lbl">${esc(m.label)}</span>
+                                                <strong class="ex-platform-dt font-mono">${esc(m.date)}</strong>
+                                            </div>
+                                        `).join("")}
+                                    </div>
+                                `).join("")}
+                            </div>
+                        </div>
+                    `).join("")}
+                </div>
+            </div>
+        ` : "";
+
         keyDatesHtml = `
             ${projWideItems.length ? `
                 <div class="ex-keydates-grid">
@@ -3126,6 +3158,7 @@ function renderExecutiveView() {
             <div class="ex-platform-grid ${kd.platforms.length >= 8 ? "grid-4x2" : ""}">
                 ${platformCardsHtml}
             </div>
+            ${freeIssueHtml}
             ${renderTiTimelineWidget(kd.ti_timeline, true)}
         `;
     } else {

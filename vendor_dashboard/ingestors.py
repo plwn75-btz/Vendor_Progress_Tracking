@@ -3860,6 +3860,56 @@ def parse_master_schedule_pdf(workspace_dir: str, project: str = "ASK") -> Dict[
                         ],
                     },
                 ],
+                "free_issue_materials": [
+                    {
+                        "platform": "WPA-01",
+                        "subtitle": "Lot #1 (FOB Handover 2026-09-30)",
+                        "materials": [
+                            {
+                                "material": "1) Riser Line Pipe (B31.8)",
+                                "milestones": [
+                                    {"label": "1) Received at Yard", "date": "2026-11-06"},
+                                    {"label": "2) Fabrication", "date": "2026-12-29..2027-04-12"},
+                                    {"label": "3) Installation", "date": "2027-04-06..2027-06-03"},
+                                    {"label": "4) Test and Preservation", "date": "2027-06-04..2027-06-22"},
+                                ],
+                            },
+                            {
+                                "material": "2) Bend & Subsea Flange",
+                                "milestones": [
+                                    {"label": "1) Received at Yard", "date": "2026-11-06"},
+                                    {"label": "2) Fabrication", "date": "2026-12-29..2027-04-12"},
+                                    {"label": "3) Installation", "date": "2027-04-06..2027-06-03"},
+                                    {"label": "4) Test and Preservation", "date": "2027-06-04..2027-06-22"},
+                                ],
+                            },
+                        ],
+                    },
+                    {
+                        "platform": "WPA-02",
+                        "subtitle": "Lot #2 (FOB Handover 2026-12-31)",
+                        "materials": [
+                            {
+                                "material": "1) Riser Line Pipe (B31.8)",
+                                "milestones": [
+                                    {"label": "1) Received at Yard", "date": "2027-01-31"},
+                                    {"label": "2) Fabrication", "date": "2027-02-25..2027-05-31"},
+                                    {"label": "3) Installation", "date": "2027-04-30..2027-06-30"},
+                                    {"label": "4) Test and Preservation", "date": "2027-07-06..2027-07-22"},
+                                ],
+                            },
+                            {
+                                "material": "2) Bend & Subsea Flange",
+                                "milestones": [
+                                    {"label": "1) Received at Yard", "date": "2027-01-31"},
+                                    {"label": "2) Fabrication", "date": "2027-02-25..2027-05-31"},
+                                    {"label": "3) Installation", "date": "2027-04-30..2027-06-30"},
+                                    {"label": "4) Test and Preservation", "date": "2027-07-06..2027-07-22"},
+                                ],
+                            },
+                        ],
+                    },
+                ],
             }
         ),
         "critical_path_packages": ["PDC", "DTP", "CV", "ACV", "PLT"],
