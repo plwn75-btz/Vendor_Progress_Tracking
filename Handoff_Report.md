@@ -471,5 +471,42 @@ When you drop new weekly files (`WPR/`, `VDRL/`, `KOM/`, `MM-ASK-1A-GEN01-PJM-SC
 
 ### 6.3. 1-Click `🚀 Push to GitHub` (Option A)
 - Added `GET /api/github-status` and `POST /api/push-github` in `server.py` using the GitHub Git Data API (`urllib.request`) to commit changed Render data files (`Export Data File_ASK.xlsx`, `Export Data File_Z1F.xlsx`, `*Procurement Plan*.xlsx`, `*Vendor Document Log Report*.xls*`) in a **single atomic commit** (skipping unchanged files via Git blob SHA comparison).
-- Configure `GITHUB_TOKEN`, `GITHUB_REPO` (`owner/repo`), and optional `GITHUB_BRANCH` (`main`) in **Render → Environment** to run 1-click pushes directly from Render (bypassing company PC proxy/firewall restrictions).
+- Configure `GITHUB_TOKEN` (Fine-grained PAT with **Repository permissions → Contents: Read and write**), `GITHUB_REPO` (`owner/repo`), and optional `GITHUB_BRANCH` (`main`) in **Render → Environment** to run 1-click pushes directly from Render (bypassing company PC proxy/firewall restrictions).
+- **Troubleshooting:**
+  - `HTTP 403: Resource not accessible by personal access token` on `POST /git/blobs` → Update the GitHub Fine-grained PAT permission **Contents** from `Read-only` to **Read and write**.
+  - `Unknown POST endpoint` locally → Restart `python server.py` so the updated routes load into memory.
+
+### 6.4. Free Issue Material Critical Milestones (ASK SCD-0001)
+- Extracted and integrated Free Issue Material milestones for **ASK only** directly underneath the `WPA-01` and `WPA-02` execution platform milestone cards:
+  - Filtered strictly to **1) Riser Line Pipe (B31.8)** and **2) Bend & Subsea Flange** (VSAT excluded per specification).
+  - Breakdown across 2 platforms (`WPA-01 Lot #1` vs. `WPA-02 Lot #2`) and 4 lifecycle stages extracted from `MM-ASK-1A-GEN01-PJM-SCD-0001.pdf`:
+    - **WPA-01 (Lot #1 Handover 2026-09-30):**
+      1. *Received at Yard:* `2026-11-06` (`ASK-PR-7330` transport to Zhuhai Yard)
+      2. *Fabrication:* `2026-12-29..2027-04-12` (`ASK-CN-2130` topside spools fabrication)
+      3. *Installation:* `2027-04-06..2027-06-03` (`ASK-CN-2140` topside spools installation)
+      4. *Test and Preservation:* `2027-06-04..2027-06-22` (`ASK-CN-2150` line check/air dry/preservation)
+    - **WPA-02 (Lot #2 Handover 2026-12-31):**
+      1. *Received at Yard:* `2027-01-31` (`ASK-PR-7340` transport to Zhuhai Yard)
+      2. *Fabrication:* `2027-02-25..2027-05-31` (`ASK-CN-2100` topside spools fabrication)
+      3. *Installation:* `2027-04-30..2027-06-30` (`ASK-CN-2110` topside spools installation)
+      4. *Test and Preservation:* `2027-07-06..2027-07-22` (`ASK-CN-2120` line check/air dry/preservation)
+  - Isolated strictly to Project ASK; Z1F returns `None` with zero UI leakage.
+
+---
+
+## 7. November 15, 2026 Release — `SCD` / `PSR` Governing ROS Toggle & Today-Anchored Look-Ahead Cleanup
+
+### 7.1. Selectable Governing ROS Reference (`SCD` | `PSR`)
+- **UI Toggle (`app.js`, `index.html`):** Added an **`SCD` | `PSR`** segmented toggle next to `🔍 Inspect Detail & Review →` in the Executive Summary header, and updated the `Governing ROS:` line above it (plus Detail & Review KPI Card 3, the One-Picture Executive Summary header/rules, and the Sources Ribbon) to reflect whichever reference is active:
+  - **`SCD` (Default):** Uses Project Master Schedule (`MM-ASK-1A-GEN01-PJM-SCD-0001.pdf` for ASK, `MM-ZTK-1F-GEN-PJM-SCD-0002.pdf` for Z1F) as `governing_ros_date`, falling back to `PSR` if no SCD date exists.
+  - **`PSR`:** Uses Procurement Plan (`Attachment 2-Procurement Plan-ASK-20261106 R7.xlsx` for ASK, `Attachment 1 - Procurement Plan-Z1F_20261106.xlsx` for Z1F) as `governing_ros_date`, falling back to `SCD` if no PSR date exists.
+- **Full Cross-View Recalculation (`server.py`, `vendor_dashboard/reconciler.py`):**
+  - Added `ros_ref` (`"SCD"` | `"PSR"`) to `/api/dashboard`, `/api/package`, `get_cached_snapshot` (cache key `"{proj}::{mode}::{ros_ref}"`), `build_project_snapshot`, `_reconcile_single_package`, `_build_package_highlights`, and `_build_smart_issue_and_mitigation`.
+  - Switching `SCD` ↔ `PSR` updates Executive Summary KPIs/health tiers, Management Attention & Priority Action List (columns `ETA vs. ROS`, `Key Issue (Root Cause)`, and `Recommended Action & Owner`), Construction Monitoring `vendor_impact_concerns`, and Detail & Review (`package_highlights`, Element 4.1D) while preserving all SCD construction activities, yard erection dates, critical path (`TF=0`), T&I timeline, and Free Issue Material data intact.
+
+### 7.2. Today-Anchored 7-Day & 14-Day Look-Ahead Register
+- **Anchored to Today (`vendor_dashboard/reconciler.py`):** Set `lookahead_cutoff = datetime.date.today().strftime("%Y-%m-%d")` (e.g., `2026-11-15` → `2026-11-22` 7d / `2026-11-29` 14d) instead of older WPR cut-off dates.
+- **Strict Window Filtering:** Updated `_in_window_dates()` and VDRL collection so only activities whose **Start Date** or **Finish Date** falls within `[today, window_end]` are included (removing already-passed tasks and overdue VDRLs from prior months).
+- **Removed `Status` Column (`index.html`, `app.js`):** Removed the `Status` column from the 7 & 14 Days Look-Ahead Schedule Register table to avoid misleading labels.
+
 

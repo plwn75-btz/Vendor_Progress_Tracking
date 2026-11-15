@@ -174,11 +174,7 @@ def build_project_lookahead_hub(
                 f = s
             if not s:
                 s = f
-            if ref_dt <= s <= window_end or ref_dt <= f <= window_end:
-                return True
-            if s <= ref_dt <= f and (f - s).days <= 45:
-                return True
-            return False
+            return (ref_dt <= s <= window_end) or (ref_dt <= f <= window_end)
         except (ValueError, TypeError):
             return False
 
@@ -190,7 +186,10 @@ def build_project_lookahead_hub(
         if (master_schedule or {}).get("from_export_cache"):
             cached_la = (master_schedule or {}).get("export_lookahead_7d" if window_days <= 7 else "export_lookahead_14d", [])
             if cached_la:
-                items.extend(dict(x) for x in cached_la)
+                items.extend(
+                    dict(x) for x in cached_la
+                    if _in_window_dates(x.get("start_date", ""), x.get("finish_date", ""), window_end)
+                )
                 items.sort(key=lambda x: (
                     0 if x.get("critical_path") == "YES" else 1,
                     x.get("start_date") or "9999-99-99",
@@ -277,7 +276,7 @@ def build_project_lookahead_hub(
                 d_plan = d.get("plan_date", "")
                 d_fc = d.get("forecast_date") or d_plan
                 is_overdue = "OVERDUE" in str(d.get("status", "")).upper()
-                if is_overdue or _in_window_dates(d_plan, d_fc, window_end):
+                if _in_window_dates(d_plan, d_fc, window_end):
                     is_key = d.get("is_key") == "Y"
                     items.append({
                         "scope": "Package",
@@ -374,9 +373,11 @@ def build_project_snapshot(
     workspace_dir: str,
     project: str = "ASK",
     mode: str = "live",
+    ros_ref: str = "SCD",
 ) -> Dict[str, Any]:
     """Build complete reconciled dashboard payload for project ('ASK' or 'Z1F')."""
     proj = project.upper() if project.upper() in ("ASK", "Z1F") else "ASK"
+    eff_ros_ref = "PSR" if str(ros_ref).strip().upper() == "PSR" else "SCD"
     is_ask = proj == "ASK"
     catalog = ASK_PACKAGE_METADATA if is_ask else Z1F_PACKAGE_METADATA
 
@@ -460,6 +461,7 @@ def build_project_snapshot(
             mode=mode,
             master_schedule=master_schedule,
             mom_detail=mom_map.get(code),
+            ros_ref=eff_ros_ref,
         )
         pkg_payload["is_core_package"] = bool(
             code in vdrl_map or code in kom_map or code in wpr_map or code in catalog
@@ -599,11 +601,21 @@ def build_project_snapshot(
 
     executive_findings_summary = {
         "headline": (
-            f"{proj} One-Picture Executive Summary — Delivery Tracked Against Master Schedule ROS ({active_master_file}) & Procurement Plan ROS Date ({active_psr_file})"
+            f"{proj} One-Picture Executive Summary — Delivery Tracked Against "
+            + (
+                f"Procurement Plan ROS ({active_psr_file}) & Master Schedule ({active_master_file})"
+                if eff_ros_ref == "PSR"
+                else f"Master Schedule ROS ({active_master_file}) & Procurement Plan ({active_psr_file})"
+            )
         ),
-        "ros_data_reference": f"{active_master_file} (Priority #1) & {active_psr_file} (Priority #2)",
-        "governing_ros_reference": active_master_file,
-        "companion_ros_reference": active_psr_file,
+        "ros_ref": eff_ros_ref,
+        "ros_data_reference": (
+            f"{active_psr_file} (Governing PSR) & {active_master_file} (SCD Reference)"
+            if eff_ros_ref == "PSR"
+            else f"{active_master_file} (Governing SCD) & {active_psr_file} (PSR Reference)"
+        ),
+        "governing_ros_reference": active_psr_file if eff_ros_ref == "PSR" else active_master_file,
+        "companion_ros_reference": active_master_file if eff_ros_ref == "PSR" else active_psr_file,
         "active_master_schedule_file": active_master_file,
         "active_master_schedule_rev": master_schedule.get("revision", "B1"),
         "project_key_dates": master_schedule.get("project_key_dates", {}),
@@ -683,10 +695,7 @@ def build_project_snapshot(
         "summary": f"Procurement Plan ({active_psr_file})",
     })
 
-    lookahead_cutoff = next(
-        (p["cut_off_date"] for p in packages_list if p["package_code"] in ("PLC", "CCV") and p.get("cut_off_date")),
-        "2026-10-16" if is_ask else "2026-09-16",
-    )
+    lookahead_cutoff = datetime.date.today().strftime("%Y-%m-%d")
 
     return {
         "project": proj,
@@ -696,6 +705,7 @@ def build_project_snapshot(
             else "EPCI of Wellhead Platforms & Pipelines for Zawtika Development Project Phase 1F (Z1F)"
         ),
         "mode": mode,
+        "ros_ref": eff_ros_ref,
         "generated_at": datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
         "executive_findings_summary": executive_findings_summary,
         "sources_summary": {
@@ -1026,6 +1036,7 @@ def _reconcile_single_package(
     mode: str,
     master_schedule: Optional[Dict[str, Any]] = None,
     mom_detail: Optional[Dict[str, Any]] = None,
+    ros_ref: str = "SCD",
 ) -> Dict[str, Any]:
     """Reconcile all 9 required dashboard elements + highlights + Attachments 3 & 4 + MOM for a single package."""
     has_live_wpr = live_wpr is not None
@@ -1228,6 +1239,7 @@ def _reconcile_single_package(
         client_doc_status=client_doc_status,
         has_live_wpr=has_live_wpr,
         live_wpr=live_wpr,
+        ros_ref=ros_ref,
     )
     package_highlights["milestone_eta_date"] = m11_date
     package_highlights["gantt_eta_date"] = gantt_eta_date
@@ -1921,6 +1933,7 @@ def _build_package_highlights(
     client_doc_status: Optional[Dict[str, Any]] = None,
     has_live_wpr: bool = False,
     live_wpr: Optional[Dict[str, Any]] = None,
+    ros_ref: str = "SCD",
 ) -> Dict[str, Any]:
     """Comment #4.1, #6 & Master Schedule Priority:
     Compute:
@@ -1966,13 +1979,18 @@ def _build_package_highlights(
     master_key_doc_dt = m_entry.get("master_key_doc_approval_date") or ""
     is_critical_path = bool(m_entry.get("is_critical_path", False))
 
-    # User Direct Instruction: Reference file is MM-ASK-1A-GEN01-PJM-SCD-0001 (Priority #1) together with Procurement Plan (Priority #2)
-    governing_ros_date = master_eta_date or ros_date
-    governing_ros_source = (
-        "Master Schedule (MM-ASK-1A-GEN01-PJM-SCD-0001)"
-        if master_eta_date
-        else "Procurement Plan"
-    )
+    # User-selectable Governing ROS Reference: 'SCD' (Project Master Schedule) or 'PSR' (Procurement Plan)
+    eff_ros_ref = "PSR" if str(ros_ref).strip().upper() == "PSR" else "SCD"
+    if eff_ros_ref == "PSR":
+        governing_ros_date = ros_date or master_eta_date
+        governing_ros_source = (
+            "Procurement Plan (PSR)" if ros_date else "Master Schedule (SCD)"
+        )
+    else:
+        governing_ros_date = master_eta_date or ros_date
+        governing_ros_source = (
+            "Master Schedule (SCD)" if master_eta_date else "Procurement Plan (PSR)"
+        )
 
     ros_delay_days = (
         _date_diff_days(governing_ros_date, effective_delivery_date)
@@ -2115,6 +2133,8 @@ def _build_package_highlights(
         d2_awc=d2_awc,
         wpr_mat_holds=wpr_mat_holds,
         cut_off_date=cut_off_date,
+        governing_ros_date=governing_ros_date,
+        governing_ros_source=governing_ros_source,
     )
 
     current_stage_summary = (
@@ -2206,12 +2226,19 @@ def _build_smart_issue_and_mitigation(
     d2_awc: int,
     wpr_mat_holds: int,
     cut_off_date: str,
+    governing_ros_date: str = "",
+    governing_ros_source: str = "Master Schedule (SCD)",
 ) -> Tuple[str, str, str, str]:
     """Generate concise, smart root-cause issue diagnosis and timely mitigation measure with target deadline & owner."""
     cp_tag = " [Master Plan TF=0 Critical Path]" if is_critical_path else ""
 
-    ref_name = f"Master Schedule ROS ({master_eta_date})" if master_eta_date else f"Procurement Plan ROS ({ros_date})"
-    gov_target = master_eta_date or ros_date
+    gov_target = governing_ros_date or master_eta_date or ros_date
+    gov_label = (
+        "Procurement Plan (PSR) ROS"
+        if "Procurement Plan" in (governing_ros_source or "")
+        else "Master Schedule (SCD) ROS"
+    )
+    ref_name = f"{gov_label} ({gov_target})" if gov_target else gov_label
     gov_delay = (
         _date_diff_days(gov_target, effective_delivery_date)
         if (gov_target and effective_delivery_date)
@@ -2309,7 +2336,7 @@ def _build_smart_issue_and_mitigation(
         f"{ros_margin_days if ros_margin_days is not None else 'compliant'}d buffer ahead of {ref_name} with 0 overdue VDRL docs."
     )
     mitigation = (
-        f"Continue routine weekly/bi-weekly WPR & VDRL monitoring to preserve schedule buffer ahead of ROS Date ({ros_date}) & Yard Erection ({yard_erection_date or 'Plan'})."
+        f"Continue routine weekly/bi-weekly WPR & VDRL monitoring to preserve schedule buffer ahead of {ref_name} & Yard Erection ({yard_erection_date or 'Plan'})."
     )
     deadline = "Routine Weekly"
     owner = "Package Engineer"

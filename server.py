@@ -64,10 +64,11 @@ def _compute_workspace_fingerprint() -> Tuple[Any, ...]:
     return tuple(entries)
 
 
-def get_cached_snapshot(project: str = "ASK", mode: str = "live", force_refresh: bool = False) -> Dict[str, Any]:
+def get_cached_snapshot(project: str = "ASK", mode: str = "live", force_refresh: bool = False, ros_ref: str = "SCD") -> Dict[str, Any]:
     proj = project.upper() if project.upper() in ("ASK", "Z1F") else "ASK"
     eff_mode = mode.lower() if mode.lower() in ("sample", "live") else "live"
-    cache_key = f"{proj}::{eff_mode}"
+    eff_ros_ref = "PSR" if str(ros_ref).strip().upper() == "PSR" else "SCD"
+    cache_key = f"{proj}::{eff_mode}::{eff_ros_ref}"
     fp = _compute_workspace_fingerprint()
 
     with _CACHE_LOCK:
@@ -86,7 +87,9 @@ def get_cached_snapshot(project: str = "ASK", mode: str = "live", force_refresh:
         importlib.reload(vendor_dashboard.models)
         importlib.reload(vendor_dashboard.ingestors)
         importlib.reload(vendor_dashboard.reconciler)
-        snapshot = vendor_dashboard.reconciler.build_project_snapshot(WORKSPACE_DIR, project=proj, mode=eff_mode)
+        snapshot = vendor_dashboard.reconciler.build_project_snapshot(
+            WORKSPACE_DIR, project=proj, mode=eff_mode, ros_ref=eff_ros_ref
+        )
         _SNAPSHOT_CACHE[cache_key] = (fp, snapshot)
         return snapshot
 
@@ -121,9 +124,10 @@ class DashboardHandler(http.server.SimpleHTTPRequestHandler):
         if route == "/api/dashboard":
             project = qs.get("project", ["ASK"])[0]
             mode = qs.get("mode", ["live"])[0]
+            ros_ref = qs.get("ros_ref", ["SCD"])[0]
             force = qs.get("refresh", ["0"])[0] == "1"
             try:
-                data = get_cached_snapshot(project=project, mode=mode, force_refresh=force)
+                data = get_cached_snapshot(project=project, mode=mode, force_refresh=force, ros_ref=ros_ref)
                 self._send_json(200, data)
             except Exception as exc:
                 self._send_json(500, {"error": str(exc)})
@@ -132,9 +136,10 @@ class DashboardHandler(http.server.SimpleHTTPRequestHandler):
         if route == "/api/package":
             project = qs.get("project", ["ASK"])[0]
             mode = qs.get("mode", ["live"])[0]
+            ros_ref = qs.get("ros_ref", ["SCD"])[0]
             code = qs.get("code", [""])[0].upper()
             try:
-                data = get_cached_snapshot(project=project, mode=mode)
+                data = get_cached_snapshot(project=project, mode=mode, ros_ref=ros_ref)
                 pkg = next((p for p in data.get("packages", []) if p["package_code"].upper() == code), None)
                 if not pkg:
                     self._send_json(404, {"error": f"Package '{code}' not found in {project}"})

@@ -13,6 +13,7 @@ const APP_STATE = {
     execShowAllPriority: false, // Executive priority list: top 10 vs all
     project: "ASK",             // 'ASK' | 'Z1F' (Separated & Switchable, starts on ASK)
     mode: "live",               // 'live' (Strict WPR #1 > SCD/PSR/VDRL #2) | 'sample' (PLC WPR Dev Sample)
+    rosRef: "SCD",              // 'SCD' (Project Master Schedule) | 'PSR' (Procurement Plan)
     activeTab: "package",       // 'package' | 'portfolio' | 'doccontrol' | 'lookahead'
     selectedPkgCode: "CIP",     // Starts on CIP (Live WPR-0010 Cut-off 2026-10-27 + MOM-0010)
     scurveView: "package",      // 'package' (Selected Pkg S-Curve) | 'project' (Weighted All Pkgs S-Curve)
@@ -484,7 +485,8 @@ async function refreshDashboard(force = false) {
     if (statusEl) statusEl.textContent = `Loading ${APP_STATE.project} snapshot...`;
 
     try {
-        const url = `/api/dashboard?project=${encodeURIComponent(APP_STATE.project)}&mode=${encodeURIComponent(APP_STATE.mode)}${force ? "&refresh=1" : ""}&_t=${Date.now()}`;
+        const rosRef = encodeURIComponent(APP_STATE.rosRef || "SCD");
+        const url = `/api/dashboard?project=${encodeURIComponent(APP_STATE.project)}&mode=${encodeURIComponent(APP_STATE.mode)}&ros_ref=${rosRef}${force ? "&refresh=1" : ""}&_t=${Date.now()}`;
         const resp = await fetch(url, { cache: "no-store" });
         if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
         const rawData = await resp.json();
@@ -631,15 +633,16 @@ function renderAll() {
     document.getElementById("brandBadge").textContent = snap.project;
     document.getElementById("projectSubtitle").textContent = snap.project_full_name;
     document.getElementById("lastGeneratedText").textContent =
-        `Synced: ${snap.generated_at} • Mode: ${snap.mode === "sample" ? "Dev Sample (Dynamic Package + PLC Template)" : "Live Execution (WPR > PSR)"}`;
+        `Synced: ${snap.generated_at} • Mode: ${snap.mode === "sample" ? "Dev Sample (Dynamic Package + PLC Template)" : "Live Execution (WPR > PSR)"} • ROS Ref: ${snap.ros_ref || "SCD"}${(snap.ros_ref && snap.ros_ref !== APP_STATE.rosRef) ? " (⚠ Restart server.py to enable PSR/SCD switching)" : ""}`;
 
     const src = snap.sources_summary || {};
     const isZ1F = (snap.project || APP_STATE.project) === "Z1F";
+    const isPsrRef = (snap.ros_ref || APP_STATE.rosRef || "SCD") === "PSR";
     const defaultMasterFile = isZ1F ? "MM-ZTK-1F-GEN-PJM-SCD-0002.pdf" : "MM-ASK-1A-GEN01-PJM-SCD-0001.pdf";
     const defaultMasterRev = isZ1F ? "C1" : "B1";
     document.getElementById("sourcesRibbonPills").innerHTML = `
-        <span class="source-pill" style="border-color:rgba(124,58,237,0.5);background:rgba(124,58,237,0.12);"><strong>1. Master Schedule (Governing ROS)</strong> ${esc(src.master_schedule_file || defaultMasterFile)} (Rev. ${esc(src.master_schedule_rev || defaultMasterRev)})</span>
-        <span class="source-pill" style="border-color:rgba(16,185,129,0.5);background:rgba(16,185,129,0.12);"><strong>2. Procurement Plan (ROS Companion)</strong> ${esc(src.psr_file || (isZ1F ? "Attachment 1 - Procurement Plan-Z1F..." : "Attachment 2-Procurement Plan-ASK..."))}</span>
+        <span class="source-pill" style="${!isPsrRef ? "border-color:rgba(124,58,237,0.5);background:rgba(124,58,237,0.12);" : ""}"><strong>1. Master Schedule (${!isPsrRef ? "Governing ROS" : "SCD Ref."})</strong> ${esc(src.master_schedule_file || defaultMasterFile)} (Rev. ${esc(src.master_schedule_rev || defaultMasterRev)})</span>
+        <span class="source-pill" style="${isPsrRef ? "border-color:rgba(124,58,237,0.5);background:rgba(124,58,237,0.12);" : "border-color:rgba(16,185,129,0.5);background:rgba(16,185,129,0.12);"}"><strong>2. Procurement Plan (${isPsrRef ? "Governing ROS" : "PSR Ref."})</strong> ${esc(src.psr_file || (isZ1F ? "Attachment 1 - Procurement Plan-Z1F..." : "Attachment 2-Procurement Plan-ASK..."))}</span>
         <span class="source-pill"><strong>3. WPR/</strong> ${src.wpr_files_count || 0} Live File(s) (.pdf/.docx)</span>
         <span class="source-pill"><strong>4. MOM/</strong> ${src.mom_files_count || 0} Live Meeting(s) (.pdf)</span>
         <span class="source-pill"><strong>5. VDRL/</strong> ${src.vdrl_packages_count || 0} Pkg Registers (.xlsx)</span>
@@ -760,6 +763,9 @@ function renderExecutiveKpiStrip(kpis) {
     const rosDelayedList = (kpis.ros_delayed_packages_list || []).join(", ");
     const highRiskCount = Number(kpis.high_risk_count || 0);
 
+    const isPsrRef = ((APP_STATE.snapshot && APP_STATE.snapshot.ros_ref) || APP_STATE.rosRef || "SCD") === "PSR";
+    const govRosShort = isPsrRef ? "Procurement Plan (PSR)" : "Master Schedule (SCD)";
+
     document.getElementById("executiveKpiStrip").innerHTML = `
         <div class="kpi-card">
             <div class="kpi-label">1. Project &amp; Active Packages</div>
@@ -779,12 +785,12 @@ function renderExecutiveKpiStrip(kpis) {
         </div>
 
         <div class="kpi-card ${rosDelayedCount > 0 ? "tone-rose" : "tone-indigo"}">
-            <div class="kpi-label">3. 🎯 Procurement Plan ROS Delivery Check</div>
+            <div class="kpi-label">3. 🎯 ${govRosShort} ROS Delivery Check</div>
             <div class="kpi-value">
                 <span>${rosDelayedCount} Delayed</span>
                 <span class="badge ${rosDelayedCount > 0 ? "badge-danger" : "badge-success"}">${rosDelayedCount > 0 ? `ETA > ROS (${esc(rosDelayedList)})` : "All ETA ≤ ROS Date"}</span>
             </div>
-            <div class="kpi-sub">Governed by Procurement Plan ROS Date • Rule: Package Delivery ETA ≤ Fixed ROS Date</div>
+            <div class="kpi-sub">Governed by ${govRosShort} ROS Date • Rule: Package Delivery ETA ≤ Governing ROS Date</div>
         </div>
 
         <div class="kpi-card tone-amber">
@@ -824,6 +830,15 @@ function switchExecScope(scopeMode) {
     APP_STATE.execScope = scopeMode;
     renderTab1ExecutiveSummary();
     renderExecutiveView();
+}
+
+function setRosRef(ref) {
+    const norm = String(ref || "SCD").toUpperCase() === "PSR" ? "PSR" : "SCD";
+    if (APP_STATE.rosRef === norm) return;
+    APP_STATE.rosRef = norm;
+    const statusEl = document.getElementById("lastGeneratedText");
+    if (statusEl) statusEl.textContent = `Switching Governing ROS to ${norm}...`;
+    refreshDashboard(false);
 }
 
 function setExecMitigationFilter(filterVal) {
@@ -891,16 +906,20 @@ function renderTab1ExecutiveSummary() {
         }).join("");
     };
 
+    const isPsrRef = (snap.ros_ref || APP_STATE.rosRef || "SCD") === "PSR";
+    const govRosShort = isPsrRef ? "Procurement Plan (PSR)" : "Master Schedule (SCD)";
+    const govRosFile = isPsrRef ? (src.psr_file || "Procurement Plan") : `${masterFile} (Rev. ${masterRev})`;
+
     cardEl.innerHTML = `
         <div class="exec-summary-header">
             <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;">
                 <span class="element-num-badge">One-Picture Executive Summary</span>
                 <div>
                     <div class="card-title" style="font-size:14.5px;">
-                        ${esc(snap.project)} One-Picture Package Health &amp; Smart Mitigation Summary — Tracked vs. Procurement Plan ROS (<strong>${esc(src.psr_file || "Procurement Plan")}</strong>) in Priority
+                        ${esc(snap.project)} One-Picture Package Health &amp; Smart Mitigation Summary — Tracked vs. ${govRosShort} ROS (<strong>${esc(govRosFile)}</strong>) in Priority
                     </div>
                     <div class="card-subtitle">
-                        <strong>Data Reference:</strong> Procurement Plan ROS Date is governing • Master Schedule (<strong>${esc(masterFile)}</strong> Rev. ${esc(masterRev)}) informs Critical Path (TF=0) &amp; Yard Erection alignment •
+                        <strong>Data Reference:</strong> ${govRosShort} ROS Date is governing • Master Schedule (<strong>${esc(masterFile)}</strong> Rev. ${esc(masterRev)}) informs Critical Path (TF=0) &amp; Yard Erection alignment •
                         Active Procurement Plan: <strong>${esc(src.psr_file || "—")}</strong>
                     </div>
                 </div>
@@ -955,7 +974,7 @@ function renderTab1ExecutiveSummary() {
                 <div class="tier-card-head">
                     <div>
                         <div class="tier-card-title">🔴 1. ALREADY DELAYED</div>
-                        <div class="tier-card-rule">Vendor ETA &gt; Procurement Plan ROS Date</div>
+                        <div class="tier-card-rule">Vendor ETA &gt; ${govRosShort} ROS Date</div>
                     </div>
                     <div class="tier-card-count" style="color:var(--accent-rose);">${tDelayed.count}</div>
                 </div>
@@ -969,7 +988,7 @@ function renderTab1ExecutiveSummary() {
                 <div class="tier-card-head">
                     <div>
                         <div class="tier-card-title">🟠 2. HIGH RISK DELAY</div>
-                        <div class="tier-card-rule">0–7d Buffer vs Procurement Plan ROS, Master Schedule TF=0 Critical Path, or WPR Material Hold</div>
+                        <div class="tier-card-rule">0–7d Buffer vs ${govRosShort} ROS, Master Schedule TF=0 Critical Path, or WPR Material Hold</div>
                     </div>
                     <div class="tier-card-count" style="color:var(--accent-amber);">${tHigh.count}</div>
                 </div>
@@ -983,7 +1002,7 @@ function renderTab1ExecutiveSummary() {
                 <div class="tier-card-head">
                     <div>
                         <div class="tier-card-title">🟡 3. LOW RISK (WATCH)</div>
-                        <div class="tier-card-rule">8–14d Buffer Ahead of Procurement Plan ROS; Minor VDRL or Client D2 Review Follow-up</div>
+                        <div class="tier-card-rule">8–14d Buffer Ahead of ${govRosShort} ROS; Minor VDRL or Client D2 Review Follow-up</div>
                     </div>
                     <div class="tier-card-count" style="color:var(--accent-blue);">${tLow.count}</div>
                 </div>
@@ -997,7 +1016,7 @@ function renderTab1ExecutiveSummary() {
                 <div class="tier-card-head">
                     <div>
                         <div class="tier-card-title">🟢 4. VERY GOOD / HEALTHY</div>
-                        <div class="tier-card-rule">Vendor ETA Ahead of Procurement Plan ROS Date (&gt;14d) • 0 Overdue VDRL Docs</div>
+                        <div class="tier-card-rule">Vendor ETA Ahead of ${govRosShort} ROS Date (&gt;14d) • 0 Overdue VDRL Docs</div>
                     </div>
                     <div class="tier-card-count" style="color:var(--accent-emerald);">${tHealthy.count}</div>
                 </div>
@@ -1012,10 +1031,10 @@ function renderTab1ExecutiveSummary() {
             <div class="mitigation-toolbar">
                 <div>
                     <div class="card-title" style="font-size:13px;">
-                        ⚡ Smart Issue Identification &amp; Timely Mitigation Action Matrix (Tracked vs. Procurement Plan ROS)
+                        ⚡ Smart Issue Identification &amp; Timely Mitigation Action Matrix (Tracked vs. ${govRosShort} ROS)
                     </div>
                     <div class="card-subtitle">
-                        Pinpoints root-cause bottlenecks (Procurement Plan ROS breach risk, Yard Topside erection clash, WPR Att. 4 sub-supplier hold, Key VDRL gate) and prescribes on-time mitigation measures
+                        Pinpoints root-cause bottlenecks (${govRosShort} ROS breach risk, Yard Topside erection clash, WPR Att. 4 sub-supplier hold, Key VDRL gate) and prescribes on-time mitigation measures
                     </div>
                 </div>
                 <div class="filter-bar">
@@ -2744,7 +2763,7 @@ function renderLookAheadTable() {
     if (!tbody) return;
 
     if (filtered.length === 0) {
-        tbody.innerHTML = `<tr><td colspan="9" class="center blank-val" style="padding:24px;">No activities found matching filters in this ${APP_STATE.lookaheadWindow}-day window.</td></tr>`;
+        tbody.innerHTML = `<tr><td colspan="8" class="center blank-val" style="padding:24px;">No activities found matching filters in this ${APP_STATE.lookaheadWindow}-day window.</td></tr>`;
         return;
     }
 
@@ -2757,9 +2776,6 @@ function renderLookAheadTable() {
         const critBadge = isCrit
             ? `<span class="badge badge-danger">🔴 TF=0 Critical</span>`
             : `<span class="badge badge-muted">Standard</span>`;
-        const statusBadge = isCrit
-            ? `<span class="badge badge-danger">${esc(a.status || 'Critical')}</span>`
-            : `<span class="badge badge-success">${esc(a.status || 'Scheduled')}</span>`;
 
         return `<tr>
             <td class="center">${scopeBadge}</td>
@@ -2773,7 +2789,6 @@ function renderLookAheadTable() {
             <td class="center font-mono" style="font-weight:700;">${fmtBlank(a.finish_date)}</td>
             <td class="center">${critBadge}</td>
             <td style="font-size:11.5px;color:var(--text-secondary);">${esc(a.source)}</td>
-            <td class="center">${statusBadge}</td>
         </tr>`;
     }).join("");
 }
@@ -3192,9 +3207,14 @@ function renderExecutiveView() {
                 <div class="ex-hero-meta">
                     <span>📅 Synced: <strong>${esc(snap.generated_at)}</strong></span>
                     <span>•</span>
-                    <span>📐 Governing ROS: <strong>${esc(masterFile)} (Rev. ${esc(masterRev)})</strong></span>
-                    <span>•</span>
-                    <span>📦 Procurement Plan: <strong>${esc(src.psr_file || "—")}</strong></span>
+                    ${(snap.ros_ref || APP_STATE.rosRef || "SCD") === "PSR"
+                        ? `<span>📐 Governing ROS (PSR): <strong>${esc(src.psr_file || "—")}</strong></span>
+                           <span>•</span>
+                           <span>🗓 Master Schedule (SCD): <strong>${esc(masterFile)} (Rev. ${esc(masterRev)})</strong></span>`
+                        : `<span>📐 Governing ROS (SCD): <strong>${esc(masterFile)} (Rev. ${esc(masterRev)})</strong></span>
+                           <span>•</span>
+                           <span>📦 Procurement Plan (PSR): <strong>${esc(src.psr_file || "—")}</strong></span>`
+                    }
                 </div>
             </div>
             <div class="ex-hero-actions">
@@ -3212,6 +3232,14 @@ function renderExecutiveView() {
                 <button type="button" class="btn-action btn-primary" onclick="drillDownTab('package')">
                     🔍 Inspect Detail &amp; Review →
                 </button>
+                <div class="segmented-control" title="Select Governing ROS Reference: SCD (Project Master Schedule) or PSR (Procurement Plan)">
+                    <button type="button" class="seg-btn ${(snap.ros_ref || APP_STATE.rosRef || "SCD") !== "PSR" ? "active" : ""}" onclick="setRosRef('SCD')" title="Use Master Schedule (SCD) as Governing ROS">
+                        <span>SCD</span>
+                    </button>
+                    <button type="button" class="seg-btn ${(snap.ros_ref || APP_STATE.rosRef || "SCD") === "PSR" ? "active" : ""}" onclick="setRosRef('PSR')" title="Use Procurement Plan (PSR) as Governing ROS">
+                        <span>PSR</span>
+                    </button>
+                </div>
             </div>
         </section>
 
